@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
+import cors from 'cors';
 import { App } from '@slack/bolt';
 import { registerCommands } from './commands';
 import { extractTasks } from './extract';
@@ -95,6 +96,7 @@ const MOCK_TASKS: Task[] = [
 
 // --- Express API server ---
 const api = express();
+api.use(cors({ origin: ['http://localhost:5173', 'http://localhost:3001'], credentials: true }));
 api.use(express.json());
 
 api.get('/', (_req: Request, res: Response) => {
@@ -102,6 +104,74 @@ api.get('/', (_req: Request, res: Response) => {
 });
 
 api.use('/meet', meetRouter);
+
+// --- Slack OAuth for frontend login ---
+const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID || '';
+const SLACK_CLIENT_SECRET = process.env.SLACK_CLIENT_SECRET || '';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+api.get('/auth/slack', (_req: Request, res: Response) => {
+  const scopes = 'identity.basic,identity.avatar';
+  const redirectUri = `${_req.protocol}://${_req.get('host')}/auth/slack/callback`;
+  const url = `https://slack.com/oauth/v2/authorize?user_scope=${scopes}&client_id=${SLACK_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  res.redirect(url);
+});
+
+api.get('/auth/slack/callback', async (req: Request, res: Response) => {
+  const { code } = req.query;
+  if (!code || typeof code !== 'string') {
+    res.status(400).json({ error: 'Missing code' });
+    return;
+  }
+
+  try {
+    const redirectUri = `${req.protocol}://${req.get('host')}/auth/slack/callback`;
+    const response = await fetch('https://slack.com/api/oauth.v2.access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: SLACK_CLIENT_ID,
+        client_secret: SLACK_CLIENT_SECRET,
+        code,
+        redirect_uri: redirectUri
+      })
+    });
+
+    const data = await response.json() as any;
+    if (!data.ok) {
+      res.redirect(`${FRONTEND_URL}?error=slack_auth_failed`);
+      return;
+    }
+
+    const userId = data.authed_user?.id;
+    const userName = data.authed_user?.access_token ? undefined : undefined;
+
+    // Get user info for display name
+    let displayName = 'User';
+    let avatar = '';
+    if (data.authed_user?.access_token) {
+      const identityRes = await fetch('https://slack.com/api/users.identity', {
+        headers: { 'Authorization': `Bearer ${data.authed_user.access_token}` }
+      });
+      const identity = await identityRes.json() as any;
+      if (identity.ok) {
+        displayName = identity.user?.name || 'User';
+        avatar = identity.user?.image_48 || '';
+      }
+    }
+
+    // Redirect to frontend with user info
+    const params = new URLSearchParams({
+      user_id: userId,
+      user_name: displayName,
+      avatar
+    });
+    res.redirect(`${FRONTEND_URL}?${params.toString()}`);
+  } catch (err) {
+    console.error('Slack OAuth error:', (err as Error).message);
+    res.redirect(`${FRONTEND_URL}?error=slack_auth_failed`);
+  }
+});
 
 api.post('/api/now', async (req: Request, res: Response) => {
   const userId = validateUserId(req.body.user_id);
