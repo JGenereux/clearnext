@@ -1,6 +1,6 @@
 import { App } from '@slack/bolt';
 import fetch from 'node-fetch';
-import { formatNowMessage, formatDoneMessage, formatAllTasksMessage } from './formatter';
+import { formatNowMessage, formatDoneMessage, formatAllTasksMessage, formatRecapMessage } from './formatter';
 
 const API_BASE = process.env.API_BASE || 'http://localhost:3000';
 
@@ -117,6 +117,27 @@ export function registerCommands(app: App) {
       console.error('/later error:', err);
       await respond({
         text: ':x: Failed to add task.',
+        response_type: 'ephemeral'
+      });
+    }
+  });
+
+  // /recap slash command — daily summary of completed tasks
+  app.command('/recap', async ({ command, ack, respond }) => {
+    await ack();
+
+    try {
+      const res = await fetch(`${API_BASE}/api/recap?user_id=${command.user_id}`);
+      const data = await res.json() as any;
+      const message = formatRecapMessage(data.done_tasks, data.remaining_tasks, data.total_minutes);
+      await respond({
+        ...message,
+        response_type: 'ephemeral'
+      });
+    } catch (err) {
+      console.error('/recap error:', err);
+      await respond({
+        text: ':x: Failed to generate recap.',
         response_type: 'ephemeral'
       });
     }
