@@ -1,5 +1,9 @@
 import { Decision, NowTask, Task } from './types';
 
+function truncate(text: string, max: number): string {
+  return text.length > max ? text.slice(0, max - 3) + '...' : text;
+}
+
 export function formatNowMessage(decision: Decision) {
   const { now, up_next, context_blocks, total_tasks, estimated_total_minutes } = decision;
 
@@ -12,7 +16,7 @@ export function formatNowMessage(decision: Decision) {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*${now.title}*\n${now.reason}\n:clock1: ~${now.estimated_minutes} min`
+        text: `*${truncate(now.title, 60)}*\n${now.reason}\n:clock1: ~${now.estimated_minutes} min`
       }
     },
     {
@@ -43,10 +47,12 @@ export function formatNowMessage(decision: Decision) {
 
   // Up next
   if (up_next.length > 0) {
-    const upNextText = up_next
-      .slice(0, 3)
-      .map((t, i) => `${i + 1}. *${t.title}* — ~${t.estimated_minutes} min`)
+    const shown = up_next.slice(0, 3);
+    const remaining = up_next.length - shown.length;
+    let upNextText = shown
+      .map((t, i) => `${i + 1}. *${truncate(t.title, 60)}* — ~${t.estimated_minutes} min`)
       .join('\n');
+    if (remaining > 0) upNextText += `\n...and ${remaining} more`;
     blocks.push({
       type: 'section',
       text: { type: 'mrkdwn', text: `*Up Next*\n${upNextText}` }
