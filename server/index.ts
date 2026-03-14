@@ -9,18 +9,60 @@ import { getSlackContext } from './slack-reader';
 
 const PORT = process.env.PORT || 3000;
 
-// --- In-memory task store ---
-let taskStore = new Map<string, Task>();
-let currentDecision: Decision | null = null;
+// --- Per-user session store ---
+interface UserSession {
+  tasks: Map<string, Task>;
+  decision: Decision | null;
+  lastUpdated: number;
+}
+
+const sessions = new Map<string, UserSession>();
+const SESSION_TTL = 60 * 60 * 1000; // 1 hour
+
+function getSession(userId: string): UserSession {
+  let session = sessions.get(userId);
+  if (!session || Date.now() - session.lastUpdated > SESSION_TTL) {
+    session = { tasks: new Map(), decision: null, lastUpdated: Date.now() };
+    sessions.set(userId, session);
+  }
+  return session;
+}
+
+// Cleanup old sessions every 30 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, session] of sessions) {
+    if (now - session.lastUpdated > SESSION_TTL) sessions.delete(id);
+  }
+}, 30 * 60 * 1000);
+
+// --- Rate limiting (per user, 10 req/min) ---
+const rateLimits = new Map<string, number[]>();
+function isRateLimited(userId: string): boolean {
+  const now = Date.now();
+  const window = 60_000;
+  const maxRequests = 10;
+
+  let timestamps = rateLimits.get(userId) || [];
+  timestamps = timestamps.filter(t => now - t < window);
+  if (timestamps.length >= maxRequests) return true;
+  timestamps.push(now);
+  rateLimits.set(userId, timestamps);
+  return false;
+}
+
+// --- Input validation ---
+function validateUserId(id: unknown): string | null {
+  if (typeof id !== 'string') return null;
+  const clean = id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 50);
+  return clean || null;
+}
 
 async function gatherInputs(userId: string) {
-  // Real Slack data
   const slack = await getSlackContext(userId);
-
   // TODO: Google Meet transcript + Calendar (Person C)
   const transcript = '';
   const calendar = '';
-
   return { slack, transcript, calendar };
 }
 
@@ -59,63 +101,103 @@ api.get('/', (_req: Request, res: Response) => {
 });
 
 api.post('/api/now', async (req: Request, res: Response) => {
-  const { user_id, user_name } = req.body;
+  const userId = validateUserId(req.body.user_id);
+  const userName = typeof req.body.user_name === 'string' ? req.body.user_name.slice(0, 100) : 'User';
+
+  if (!userId) {
+    res.status(400).json({ error: 'Invalid user_id' });
+    return;
+  }
+
+  if (isRateLimited(userId)) {
+    res.status(429).json({ error: 'Too many requests. Try again in a minute.' });
+    return;
+  }
 
   try {
-    const inputs = await gatherInputs(user_id);
-    const tasks = await extractTasks(inputs.slack, inputs.transcript, inputs.calendar, user_name || 'User');
+    const inputs = await gatherInputs(userId);
+    const tasks = await extractTasks(inputs.slack, inputs.transcript, inputs.calendar, userName);
 
     if (tasks.length === 0) {
-      currentDecision = MOCK_DECISION;
-      res.json(MOCK_DECISION);
+      res.json({ ...MOCK_DECISION, is_mock: true });
       return;
     }
 
-    // Store tasks
-    taskStore.clear();
-    tasks.forEach(t => taskStore.set(t.id, t));
+    const session = getSession(userId);
+    session.tasks.clear();
+    tasks.forEach(t => session.tasks.set(t.id, t));
+    session.lastUpdated = Date.now();
 
-    const decision = await makeDecision(tasks, user_name || 'User');
+    const decision = await makeDecision(tasks, userName);
     if (!decision) {
-      currentDecision = MOCK_DECISION;
-      res.json(MOCK_DECISION);
+      res.json({ ...MOCK_DECISION, is_mock: true });
       return;
     }
 
-    currentDecision = decision;
+    session.decision = decision;
     res.json(decision);
   } catch (err) {
-    console.error('/api/now error:', err);
-    currentDecision = MOCK_DECISION;
-    res.json(MOCK_DECISION);
+    console.error('/api/now error:', (err as Error).message);
+    res.json({ ...MOCK_DECISION, is_mock: true });
   }
 });
 
 api.post('/api/done', async (req: Request, res: Response) => {
   const { task_id, action } = req.body;
+  const userId = validateUserId(req.body.user_id);
 
-  const task = taskStore.get(task_id);
-  if (task) {
-    task.done = true;
+  // Find the session that has this task
+  let session: UserSession | undefined;
+  if (userId) {
+    session = sessions.get(userId);
+  }
+  // Fallback: search all sessions for the task
+  if (!session) {
+    for (const s of sessions.values()) {
+      if (s.tasks.has(task_id)) { session = s; break; }
+    }
   }
 
-  // Return next task from decision
-  if (currentDecision && currentDecision.up_next.length > 0) {
-    const nextTask = currentDecision.up_next.shift()!;
-    currentDecision.now = nextTask;
-    res.json({ next_task: nextTask });
-  } else {
-    res.json({ next_task: null });
+  if (session) {
+    const task = session.tasks.get(task_id);
+    if (task) task.done = true;
+
+    if (session.decision && session.decision.up_next.length > 0) {
+      const nextTask = session.decision.up_next.shift()!;
+      session.decision.now = nextTask;
+      res.json({ next_task: nextTask });
+      return;
+    }
   }
+
+  res.json({ next_task: null });
 });
 
-api.get('/api/tasks', async (_req: Request, res: Response) => {
-  if (taskStore.size > 0) {
-    res.json(Array.from(taskStore.values()));
-  } else {
-    res.json(MOCK_TASKS);
+api.get('/api/tasks', async (req: Request, res: Response) => {
+  const userId = validateUserId(req.query.user_id);
+
+  if (userId) {
+    const session = sessions.get(userId);
+    if (session && session.tasks.size > 0) {
+      res.json(Array.from(session.tasks.values()));
+      return;
+    }
   }
+
+  res.json(MOCK_TASKS);
 });
+
+// --- Startup validation ---
+function validateEnv() {
+  const required = ['SLACK_BOT_TOKEN', 'SLACK_SIGNING_SECRET', 'SLACK_APP_TOKEN'];
+  const missing = required.filter(k => !process.env[k]);
+  if (missing.length > 0) {
+    console.warn(`Missing env vars: ${missing.join(', ')} — Slack bot will not start`);
+  }
+  if (!process.env.GEMINI_API_KEY) {
+    console.warn('Missing GEMINI_API_KEY — AI pipeline will use mock data');
+  }
+}
 
 // --- Slack Bolt app ---
 const slackApp = new App({
@@ -129,6 +211,8 @@ registerCommands(slackApp);
 
 // --- Start both ---
 async function start() {
+  validateEnv();
+
   api.listen(PORT, () => {
     console.log(`API server listening on port ${PORT}`);
   });
@@ -137,7 +221,7 @@ async function start() {
     await slackApp.start();
     console.log('Slack bot connected (Socket Mode)');
   } catch (err) {
-    console.error('Slack bot failed to start (missing tokens?):', (err as Error).message);
+    console.error('Slack bot failed to start:', (err as Error).message);
     console.log('API server still running — Slack bot disabled');
   }
 }

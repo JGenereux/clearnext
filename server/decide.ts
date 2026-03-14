@@ -20,7 +20,8 @@ export async function makeDecision(
     };
   }
 
-  const userPrompt = `User: ${userName}\n\nTasks:\n${JSON.stringify(activeTasks, null, 2)}`;
+  const sanitizedName = userName.slice(0, 100);
+  const userPrompt = `User: ${sanitizedName}\n\nTasks:\n${JSON.stringify(activeTasks, null, 2)}`;
 
   try {
     const result = await model.generateContent({
@@ -30,16 +31,29 @@ export async function makeDecision(
     });
 
     const text = result.response.text();
-    const decision: Decision = JSON.parse(text);
-
-    if (!decision.now || !decision.now.task_id) {
-      console.error('Invalid decision: missing now.task_id');
+    let decision: Decision;
+    try {
+      decision = JSON.parse(text);
+    } catch (parseErr) {
+      console.error('makeDecision JSON parse error. Raw response:', text.slice(0, 500));
       return null;
     }
 
+    // Validate required fields
+    if (!decision || !decision.now || !decision.now.task_id) {
+      console.error('Invalid decision structure:', JSON.stringify(decision).slice(0, 300));
+      return null;
+    }
+
+    // Ensure arrays exist
+    decision.up_next = Array.isArray(decision.up_next) ? decision.up_next : [];
+    decision.context_blocks = Array.isArray(decision.context_blocks) ? decision.context_blocks : [];
+    decision.total_tasks = typeof decision.total_tasks === 'number' ? decision.total_tasks : activeTasks.length;
+    decision.estimated_total_minutes = typeof decision.estimated_total_minutes === 'number' ? decision.estimated_total_minutes : 0;
+
     return decision;
   } catch (err) {
-    console.error('makeDecision error:', err);
+    console.error('makeDecision error:', (err as Error).message);
     return null;
   }
 }
