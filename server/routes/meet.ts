@@ -6,13 +6,16 @@ const router = Router();
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
-  'http://localhost:3001/meet/auth/callback'
+  `http://localhost:${process.env.PORT || 3000}/meet/auth/callback`
 );
 
 const SCOPES = [
   'https://www.googleapis.com/auth/meetings.space.readonly',
 ];
 
+/**
+ * This route must be called in the browser to authenticate the user.
+ */
 router.get('/auth/google', (_req: Request, res: Response) => {
   const url = oauth2Client.generateAuthUrl({
     access_type: 'offline',
@@ -115,8 +118,10 @@ async function getTranscriptsForRecord(
 
 // --- Routes ---
 
-// List all conference records with their transcripts
-router.get('/conferences', async (_req: Request, res: Response) => {
+/**
+ * Lists all transcripts (w conference info) belonging to the authenticated user
+ */
+router.get('/transcripts', async (_req: Request, res: Response) => {
   if (!oauth2Client.credentials?.access_token) {
     res.status(401).json({ error: 'Not authenticated. Visit /meet/auth/google first.' });
     return;
@@ -150,7 +155,7 @@ router.get('/conferences', async (_req: Request, res: Response) => {
       })
     );
 
-    res.json({ conferences });
+    res.json({ conferences: conferences.filter(c => c.transcripts?.length != 0) });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch conferences', details: String(err) });
   }
