@@ -205,6 +205,32 @@ api.post('/api/later', async (req: Request, res: Response) => {
   res.json({ task, total_tasks: session.tasks.size });
 });
 
+api.get('/api/recap', async (req: Request, res: Response) => {
+  const userId = validateUserId(req.query.user_id);
+
+  if (!userId) {
+    res.status(400).json({ error: 'Invalid user_id' });
+    return;
+  }
+
+  const session = sessions.get(userId);
+  if (!session || session.tasks.size === 0) {
+    res.json({ done_tasks: [], remaining_tasks: [], total_minutes: 0 });
+    return;
+  }
+
+  const allTasks = Array.from(session.tasks.values());
+  const doneTasks = allTasks.filter(t => t.done);
+  const remainingTasks = allTasks.filter(t => !t.done);
+
+  // Estimate remaining minutes from decision or default 15 per task
+  const totalMinutes = session.decision?.estimated_total_minutes
+    ? Math.max(0, session.decision.estimated_total_minutes - (doneTasks.length * 15))
+    : remainingTasks.length * 15;
+
+  res.json({ done_tasks: doneTasks, remaining_tasks: remainingTasks, total_minutes: totalMinutes });
+});
+
 api.get('/api/tasks', async (req: Request, res: Response) => {
   const userId = validateUserId(req.query.user_id);
 
