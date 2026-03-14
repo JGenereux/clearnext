@@ -8,6 +8,7 @@ import { makeDecision } from './decide';
 import { Task, Decision } from './types';
 import { getSlackContext } from './slack-reader';
 import meetRouter, { getGoogleMeetContext } from './routes/meet';
+import { saveTasks, getTasks, markTaskDone, saveDecision, getLatestDecision } from './supabase';
 
 const PORT = process.env.PORT || 3000;
 
@@ -200,6 +201,9 @@ api.post('/api/now', async (req: Request, res: Response) => {
     tasks.forEach(t => session.tasks.set(t.id, t));
     session.lastUpdated = Date.now();
 
+    // Save tasks to Supabase
+    await saveTasks(userId, tasks);
+
     const decision = await makeDecision(tasks, userName);
     if (!decision) {
       res.json({ ...MOCK_DECISION, is_mock: true });
@@ -207,6 +211,7 @@ api.post('/api/now', async (req: Request, res: Response) => {
     }
 
     session.decision = decision;
+    await saveDecision(userId, decision);
     res.json(decision);
   } catch (err) {
     console.error('/api/now error:', (err as Error).message);
@@ -233,6 +238,7 @@ api.post('/api/done', async (req: Request, res: Response) => {
   if (session) {
     const task = session.tasks.get(task_id);
     if (task) task.done = true;
+    await markTaskDone(task_id);
 
     if (session.decision && session.decision.up_next.length > 0) {
       const nextTask = session.decision.up_next.shift()!;
@@ -273,6 +279,7 @@ api.post('/api/later', async (req: Request, res: Response) => {
 
   session.tasks.set(taskId, task);
   session.lastUpdated = Date.now();
+  await saveTasks(userId, [task]);
 
   res.json({ task, total_tasks: session.tasks.size });
 });
@@ -285,19 +292,25 @@ api.get('/api/recap', async (req: Request, res: Response) => {
     return;
   }
 
-  const session = sessions.get(userId);
-  if (!session || session.tasks.size === 0) {
-    res.json({ done_tasks: [], remaining_tasks: [], total_minutes: 0 });
-    return;
+  // Try Supabase first
+  let allTasks = await getTasks(userId);
+
+  // Fallback to in-memory
+  if (allTasks.length === 0) {
+    const session = sessions.get(userId);
+    if (!session || session.tasks.size === 0) {
+      res.json({ done_tasks: [], remaining_tasks: [], total_minutes: 0 });
+      return;
+    }
+    allTasks = Array.from(session.tasks.values());
   }
 
-  const allTasks = Array.from(session.tasks.values());
   const doneTasks = allTasks.filter(t => t.done);
   const remainingTasks = allTasks.filter(t => !t.done);
 
-  // Estimate remaining minutes from decision or default 15 per task
-  const totalMinutes = session.decision?.estimated_total_minutes
-    ? Math.max(0, session.decision.estimated_total_minutes - (doneTasks.length * 15))
+  const decision = await getLatestDecision(userId);
+  const totalMinutes = decision?.estimated_total_minutes
+    ? Math.max(0, decision.estimated_total_minutes - (doneTasks.length * 15))
     : remainingTasks.length * 15;
 
   res.json({ done_tasks: doneTasks, remaining_tasks: remainingTasks, total_minutes: totalMinutes });
@@ -307,6 +320,13 @@ api.get('/api/tasks', async (req: Request, res: Response) => {
   const userId = validateUserId(req.query.user_id);
 
   if (userId) {
+    // Try Supabase first
+    const dbTasks = await getTasks(userId);
+    if (dbTasks.length > 0) {
+      res.json(dbTasks);
+      return;
+    }
+    // Fallback to in-memory session
     const session = sessions.get(userId);
     if (session && session.tasks.size > 0) {
       res.json(Array.from(session.tasks.values()));
@@ -324,8 +344,11 @@ function validateEnv() {
   if (missing.length > 0) {
     console.warn(`Missing env vars: ${missing.join(', ')} — Slack bot will not start`);
   }
-  if (!process.env.GEMINI_API_KEY) {
-    console.warn('Missing GEMINI_API_KEY — AI pipeline will use mock data');
+  if (!process.env.GROQ_API_KEY) {
+    console.warn('Missing GROQ_API_KEY — AI pipeline will use mock data');
+  }
+  if (!process.env.SUPABASE_URL || !(process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY)) {
+    console.warn('Missing SUPABASE_URL/SUPABASE_KEY — tasks will only persist in memory');
   }
 }
 
