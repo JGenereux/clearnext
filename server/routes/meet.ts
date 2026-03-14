@@ -66,11 +66,37 @@ interface ConferenceRecord {
 
 // --- Helpers ---
 
+async function resolveParticipantName(
+  meet: ReturnType<typeof google.meet>,
+  participantResource: string,
+  cache: Map<string, string>
+): Promise<string> {
+  if (cache.has(participantResource)) return cache.get(participantResource)!;
+
+  try {
+    const res = await meet.conferenceRecords.participants.get({
+      name: participantResource,
+    });
+    const p = res.data;
+    const displayName =
+      (p.signedinUser as any)?.displayName ||
+      (p.anonymousUser as any)?.displayName ||
+      (p.phoneUser as any)?.displayName ||
+      participantResource;
+    cache.set(participantResource, displayName);
+    return displayName;
+  } catch {
+    cache.set(participantResource, participantResource);
+    return participantResource;
+  }
+}
+
 async function getTranscriptEntries(
   meet: ReturnType<typeof google.meet>,
   transcriptName: string
 ): Promise<TranscriptEntry[]> {
   const entries: TranscriptEntry[] = [];
+  const participantCache = new Map<string, string>();
   let pageToken: string | undefined;
 
   do {
@@ -81,8 +107,12 @@ async function getTranscriptEntries(
     });
 
     for (const entry of entriesRes.data.transcriptEntries || []) {
+      const participantName = entry.participant
+        ? await resolveParticipantName(meet, entry.participant, participantCache)
+        : null;
+
       entries.push({
-        participant: entry.participant || null,
+        participant: participantName,
         text: entry.text || '',
         startTime: entry.startTime || null,
         endTime: entry.endTime || null,
@@ -116,12 +146,7 @@ async function getTranscriptsForRecord(
   return transcripts;
 }
 
-// --- Routes ---
-
-/**
- * Lists all transcripts (w conference info) belonging to the authenticated user
- */
-router.get('/transcripts', async (_req: Request, res: Response) => {
+router.get('/conferences', async (_req: Request, res: Response) => {
   if (!oauth2Client.credentials?.access_token) {
     res.status(401).json({ error: 'Not authenticated. Visit /meet/auth/google first.' });
     return;
@@ -133,29 +158,15 @@ router.get('/transcripts', async (_req: Request, res: Response) => {
     const recordsRes = await meet.conferenceRecords.list();
     const records = recordsRes.data.conferenceRecords || [];
 
-    if (records.length === 0) {
-      res.json({ message: 'No conference records found.', conferences: [] });
-      return;
-    }
+    const conferences = records.map(record => ({
+      name: record.name || '',
+      startTime: record.startTime || null,
+      endTime: record.endTime || null,
+      expireTime: record.expireTime || null,
+      space: record.space || null,
+    }));
 
-    const conferences: ConferenceRecord[] = await Promise.all(
-      records.map(async (record) => {
-        const transcripts = record.name
-          ? await getTranscriptsForRecord(meet, record.name).catch(() => [])
-          : [];
-
-        return {
-          name: record.name || '',
-          startTime: record.startTime || null,
-          endTime: record.endTime || null,
-          expireTime: record.expireTime || null,
-          space: record.space || null,
-          transcripts,
-        };
-      })
-    );
-
-    res.json({ conferences: conferences.filter(c => c.transcripts?.length != 0) });
+    res.json({ conferences });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch conferences', details: String(err) });
   }
@@ -196,5 +207,62 @@ router.get('/conferences/:meetingCode/transcripts', async (req: Request, res: Re
     res.status(500).json({ error: 'Failed to fetch transcripts', details: String(err) });
   }
 });
+
+export async function getGoogleMeetContext(userName: string = "Jace", _userId: string): Promise<string> {
+  if (!oauth2Client.credentials?.access_token) return '';
+
+  const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
+  const nameLower = userName.toLowerCase().trim();
+
+  try {
+    const meet = google.meet({ version: 'v2', auth: oauth2Client });
+    const recordsRes = await meet.conferenceRecords.list();
+    const records = recordsRes.data.conferenceRecords || [];
+
+    const recentRecords = records.filter(r => {
+      if (!r.startTime) return false;
+      return new Date(r.startTime) >= sixHoursAgo;
+    });
+
+    const meetingTranscripts: string[] = [];
+
+    for (const record of recentRecords) {
+      if (!record.name) continue;
+
+      const transcriptsRes = await meet.conferenceRecords.transcripts.list({
+        parent: record.name,
+      });
+
+      const transcriptList = transcriptsRes.data.transcripts || [];
+
+      for (const t of transcriptList) {
+        if (!t.name) continue;
+
+        const entries = await getTranscriptEntries(meet, t.name);
+        if (entries.length === 0) continue;
+        console.log("Entries: ", entries)
+
+        const relevant = entries.filter(e => {
+          const pName = e.participant?.toLowerCase().trim() || '';
+          const textLower = e.text.toLowerCase();
+          return pName.includes(nameLower) || textLower.includes(nameLower);
+        });
+
+        if (relevant.length === 0) continue;
+
+        const lines = relevant.map(e =>
+          `[${e.startTime || ''}] ${e.participant}: ${e.text}`
+        );
+        meetingTranscripts.push(lines.join('\n'));
+      }
+    }
+
+    return meetingTranscripts.join('\n---\n');
+  } catch (err) {
+    console.error('Failed to fetch Meet transcript:', err);
+  }
+
+  return '';
+}
 
 export default router;

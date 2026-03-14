@@ -6,7 +6,7 @@ import { extractTasks } from './extract';
 import { makeDecision } from './decide';
 import { Task, Decision } from './types';
 import { getSlackContext } from './slack-reader';
-import meetRouter from './routes/meet';
+import meetRouter, { getGoogleMeetContext } from './routes/meet';
 
 const PORT = process.env.PORT || 3000;
 
@@ -62,7 +62,7 @@ function validateUserId(id: unknown): string | null {
 async function gatherInputs(userId: string) {
   const slack = await getSlackContext(userId);
   // TODO: Google Meet transcript + Calendar (Person C)
-  const transcript = '';
+  const transcript = await getGoogleMeetContext('Jace', userId);
   const calendar = '';
   return { slack, transcript, calendar };
 }
