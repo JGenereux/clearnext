@@ -1,6 +1,7 @@
 import { App } from '@slack/bolt';
 import fetch from 'node-fetch';
 import { formatNowMessage, formatDoneMessage, formatAllTasksMessage } from './formatter';
+import { Decision } from './types';
 
 const API_BASE = process.env.API_BASE || 'http://localhost:3000';
 
@@ -25,7 +26,7 @@ export function registerCommands(app: App) {
       });
 
       const decision = await res.json();
-      const message = formatNowMessage(decision);
+      const message = formatNowMessage(decision as Decision);
 
       await respond({
         ...message,
@@ -55,7 +56,7 @@ export function registerCommands(app: App) {
       });
 
       const data = await res.json();
-      const message = formatDoneMessage(data.next_task || null);
+      const message = formatDoneMessage((data as { next_task: any }).next_task || null);
       await respond(message);
     } catch (err) {
       console.error('task_done error:', err);
@@ -76,7 +77,7 @@ export function registerCommands(app: App) {
       });
 
       const data = await res.json();
-      const message = formatDoneMessage(data.next_task || null);
+      const message = formatDoneMessage((data as { next_task: any }).next_task || null);
       await respond(message);
     } catch (err) {
       console.error('task_skip error:', err);
@@ -91,7 +92,7 @@ export function registerCommands(app: App) {
     try {
       const res = await fetch(`${API_BASE}/api/tasks`);
       const tasks = await res.json();
-      const message = formatAllTasksMessage(tasks);
+      const message = formatAllTasksMessage(tasks as any);
       await respond(message);
     } catch (err) {
       console.error('see_all error:', err);

@@ -1,0 +1,12 @@
+{
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "autoprefixer": "^10.4.27",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.1"
+  },
+  "dependencies": {
+    "@slack/bolt": "^4.6.0",
+    "node-fetch": "^3.3.2"
+  }
+}
