@@ -173,6 +173,38 @@ api.post('/api/done', async (req: Request, res: Response) => {
   res.json({ next_task: null });
 });
 
+api.post('/api/later', async (req: Request, res: Response) => {
+  const userId = validateUserId(req.body.user_id);
+  const userName = typeof req.body.user_name === 'string' ? req.body.user_name.slice(0, 100) : 'User';
+  const text = typeof req.body.text === 'string' ? req.body.text.slice(0, 500) : '';
+
+  if (!userId || !text) {
+    res.status(400).json({ error: 'Invalid user_id or empty text' });
+    return;
+  }
+
+  const session = getSession(userId);
+  const taskId = `t_${Date.now()}_manual`;
+  const task: Task = {
+    id: taskId,
+    title: text.split(' ').slice(0, 8).join(' '),
+    description: text,
+    source: 'slack',
+    assigned_to_user: true,
+    urgency_signals: [],
+    mentioned_by: userName,
+    mentioned_count: 1,
+    deadline_hint: null,
+    raw_quote: text,
+    done: false
+  };
+
+  session.tasks.set(taskId, task);
+  session.lastUpdated = Date.now();
+
+  res.json({ task, total_tasks: session.tasks.size });
+});
+
 api.get('/api/tasks', async (req: Request, res: Response) => {
   const userId = validateUserId(req.query.user_id);
 
