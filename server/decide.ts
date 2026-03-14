@@ -1,4 +1,4 @@
-import { getModel } from './gemini';
+import { callAI } from './gemini';
 import { DECISION_SYSTEM_PROMPT } from './prompts';
 import { Task, Decision } from './types';
 
@@ -6,9 +6,6 @@ export async function makeDecision(
   tasks: Task[],
   userName: string
 ): Promise<Decision | null> {
-  const model = getModel();
-  if (!model) return null;
-
   const activeTasks = tasks.filter(t => !t.done);
   if (activeTasks.length === 0) {
     return {
@@ -24,28 +21,22 @@ export async function makeDecision(
   const userPrompt = `User: ${sanitizedName}\n\nTasks:\n${JSON.stringify(activeTasks, null, 2)}`;
 
   try {
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-      systemInstruction: DECISION_SYSTEM_PROMPT,
-      generationConfig: { responseMimeType: 'application/json' }
-    });
+    const text = await callAI(DECISION_SYSTEM_PROMPT, userPrompt);
+    if (!text) return null;
 
-    const text = result.response.text();
     let decision: Decision;
     try {
       decision = JSON.parse(text);
-    } catch (parseErr) {
-      console.error('makeDecision JSON parse error. Raw response:', text.slice(0, 500));
+    } catch {
+      console.error('makeDecision JSON parse error. Raw:', text.slice(0, 500));
       return null;
     }
 
-    // Validate required fields
     if (!decision || !decision.now || !decision.now.task_id) {
       console.error('Invalid decision structure:', JSON.stringify(decision).slice(0, 300));
       return null;
     }
 
-    // Ensure arrays exist
     decision.up_next = Array.isArray(decision.up_next) ? decision.up_next : [];
     decision.context_blocks = Array.isArray(decision.context_blocks) ? decision.context_blocks : [];
     decision.total_tasks = typeof decision.total_tasks === 'number' ? decision.total_tasks : activeTasks.length;
