@@ -5,6 +5,7 @@ import { registerCommands } from './commands';
 import { extractTasks } from './extract';
 import { makeDecision } from './decide';
 import { Task, Decision } from './types';
+import { getSlackContext } from './slack-reader';
 
 const PORT = process.env.PORT || 3000;
 
@@ -12,19 +13,15 @@ const PORT = process.env.PORT || 3000;
 let taskStore = new Map<string, Task>();
 let currentDecision: Decision | null = null;
 
-// Temporary sample data until integrations (Person C) are ready
-async function gatherInputs(_userId: string) {
-  return {
-    slack: `Eric: Can someone fix the Shopify webhook? It's been broken since yesterday and blocking deploy.
-Sarah: @user please review PR #42 when you get a chance, need it merged today
-Eric: Webhook is still down, this is urgent, need it fixed ASAP
-Manager: Team standup notes — @user owns the API docs update before client demo
-DM from Sarah: Hey can you also check the staging environment? Something looks off`,
-    transcript: `Meeting notes: We discussed the client demo happening at 4pm today. The API docs need to be updated before then. Eric mentioned the Shopify webhook is still broken and it's blocking the deploy pipeline. Sarah asked for PR #42 to be reviewed.`,
-    calendar: `2:00 PM - Team Standup (with Eric, Sarah, Manager)
-4:00 PM - Client Demo (hard deadline, with Sarah, Eric, Client Team)
-5:30 PM - 1:1 with Manager`
-  };
+async function gatherInputs(userId: string) {
+  // Real Slack data
+  const slack = await getSlackContext(userId);
+
+  // TODO: Google Meet transcript + Calendar (Person C)
+  const transcript = '';
+  const calendar = '';
+
+  return { slack, transcript, calendar };
 }
 
 // --- Mock data fallbacks ---
