@@ -22,6 +22,7 @@
   },
   "homepage": "https://github.com/JGenereux/clearnext#readme",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "@slack/bolt": "^4.6.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
