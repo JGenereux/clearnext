@@ -5,7 +5,6 @@ import { Task } from './types';
 export async function extractTasks(
   slackText: string,
   transcriptText: string,
-  calendarText: string,
   userName: string
 ): Promise<Task[]> {
   const sanitize = (s: string) => s.slice(0, 10_000).replace(/```/g, '');
@@ -17,9 +16,6 @@ ${sanitize(slackText) || '(none)'}
 
 === MEETING TRANSCRIPT ===
 ${sanitize(transcriptText) || '(none)'}
-
-=== CALENDAR EVENTS ===
-${sanitize(calendarText) || '(none)'}
 
 Return a JSON object with a "tasks" array.`;
 
