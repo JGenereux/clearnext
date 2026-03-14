@@ -63,8 +63,7 @@ async function gatherInputs(userId: string) {
   const slack = await getSlackContext(userId);
   // TODO: Google Meet transcript + Calendar (Person C)
   const transcript = await getGoogleMeetContext('Jace', userId);
-  const calendar = '';
-  return { slack, transcript, calendar };
+  return { slack, transcript};
 }
 
 // --- Mock data fallbacks ---
@@ -119,7 +118,7 @@ api.post('/api/now', async (req: Request, res: Response) => {
 
   try {
     const inputs = await gatherInputs(userId);
-    const tasks = await extractTasks(inputs.slack, inputs.transcript, inputs.calendar, userName);
+    const tasks = await extractTasks(inputs.slack, inputs.transcript, userName);
 
     if (tasks.length === 0) {
       res.json({ ...MOCK_DECISION, is_mock: true });

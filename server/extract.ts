@@ -5,7 +5,6 @@ import { Task } from './types';
 export async function extractTasks(
   slackText: string,
   transcriptText: string,
-  calendarText: string,
   userName: string
 ): Promise<Task[]> {
   const model = getModel();
@@ -20,10 +19,7 @@ export async function extractTasks(
 ${sanitize(slackText) || '(none)'}
 
 === MEETING TRANSCRIPT ===
-${sanitize(transcriptText) || '(none)'}
-
-=== CALENDAR EVENTS ===
-${sanitize(calendarText) || '(none)'}`;
+${sanitize(transcriptText) || '(none)'}`;
 
   try {
     const result = await model.generateContent({
