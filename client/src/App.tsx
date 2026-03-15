@@ -3,70 +3,28 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Zap, ArrowRight, Wind } from 'lucide-react';
 import Simplify from './components/Focusmode'; 
 import Connections from './components/Connection'; 
-import Dashboard from './components/Dashboard'; // Create this file next
-/*
-To get your frontend and backend talking, you need to turn those static "hardcoded" lists into dynamic States that sync with a database. main landing page, connections page, dashboard page, focus mode page
+import Dashboard from './components/Dashboard'; 
 
-Since you're working with React, Node.js, and likely Azure, here are the specific integration comments for your main pages.
-
-1. Dashboard Page (Dashboard.jsx)
-This is your "Read/Update" hub. It needs to fetch all tasks when the component mounts.
-
-State Setup: Replace the static tasks array with const [tasks, setTasks] = useState([]).
-
-Data Fetching: Use a useEffect hook to call GET /api/tasks. This should pull tasks filtered by the logged-in user's ID.
-
-Status Syncing: The "Checkmark" button shouldn't just change the UI color; it needs to trigger a PATCH /api/tasks/:id request to update the status to "completed" in the database.
-
-Slack Integration: Add a "Sync" function that pings your backend to check for new Slack Webhook events, ensuring the "Reply to Design Lead" task is actually current.
-
-Dynamic Context: The "Calgary • March 2026" text can be made dynamic by using a Geolocation API and a standard JavaScript Date object, though it can also be served from a "User Preferences" backend endpoint.
-
-2. Focus Mode Page (FocusMode.jsx)
-This is your "Active Session" page. It’s all about timing and "writing" progress back to the server.
-
-Session Start: When the user clicks "Enter Focus Mode," send a POST /api/sessions/start to the backend. This logs when you started and which task you are focused on.
-
-Plant Growth Logic: The "growth" of your plant shouldn't just be a CSS animation. Every few minutes, the frontend should send a "heartbeat" to the backend. If the session is finished, the backend calculates the final "O₂ reward" based on the total time.
-
-Slack Automation: This is where you trigger the Slack Status Change. Upon entering, the backend calls the Slack API to set your status to 🧘 (Focusing).
-
-Reset Prevention: Use the backend to store the "Active Session" state so that if Zeynep refreshes the page, the timer doesn't reset to zero—it resumes from the database timestamp.
-
-3. Connections / Auth Page
-This is the "Gateway" where you establish the user's identity.
-
-Token Storage: After a successful Google/Slack login, the backend will send a JWT (JSON Web Token). Store this in localStorage or a secure cookie. Every subsequent request to the backend must include this token in the header.
-
-Integration Checks: The "Connect" buttons should check the backend for existing tokens. If a token exists, show "Connected" (Emerald style); if not, show the "Connect" action.
-
-Loading States: Since connecting to Slack involves a redirect, ensure you have a "Callback" route on your frontend to handle the code Slack sends back, which you then pass to your backend to exchange for a real access token.
-
-Summary of Backend Endpoints Needed:
-Method	Endpoint	Description
-GET	/api/tasks	Fetches the user's task list (Slack, Email, Manual).
-PATCH	/api/tasks/:id	Marks a task as complete and triggers the O₂ reward.
-POST	/api/sessions	Starts/Stops a deep work session and logs time.
-POST	/api/slack/status	Toggles the user's Slack status between "Focus" and "Active".
-GET	/api/user/profile	Fetches Zeynep's profile data (Streak count, total O₂).*/
+// 1. Define the possible screens as a Type
+type Screen = 'landing' | 'connections' | 'dashboard' | 'simplify';
 
 export default function App() {
-  // Screens: 'landing', 'connections', 'dashboard', 'simplify'
-  const [currentScreen, setCurrentScreen] = useState('landing');
+  // 2. Explicitly type the state
+  const [currentScreen, setCurrentScreen] = useState<Screen>('landing');
 
   useEffect(() => {
-    // If user is already logged in, skip landing and go to the Task Hub (Dashboard)
+    // Check if user is already logged in
     if (localStorage.getItem('isLoggedIn') === 'true') {
       setCurrentScreen('dashboard');
     }
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = (): void => {
     localStorage.clear();
     setCurrentScreen('landing');
   };
 
-  const o2SplashImage = "https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?auto=format&fit=crop&q=80&w=1200";
+  const o2SplashImage: string = "https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?auto=format&fit=crop&q=80&w=1200";
 
   return (
     <div className="relative min-h-screen bg-[#f1f5f0] overflow-hidden font-sans">
@@ -123,7 +81,7 @@ export default function App() {
               >
                 <img 
                   src={o2SplashImage} 
-                  className="relative w-full aspect-4/5 object-cover rounded-[80px] shadow-2xl border-16 border-white/50 backdrop-blur-sm"
+                  className="relative w-full aspect-[4/5] object-cover rounded-[80px] shadow-2xl border-[16px] border-white/50 backdrop-blur-sm"
                   alt="Nature"
                 />
               </motion.div>
@@ -136,7 +94,7 @@ export default function App() {
           <Connections onBack={() => setCurrentScreen('dashboard')} />
         )}
 
-        {/* 3. TASK HUB (New Landing Page) */}
+        {/* 3. TASK HUB (Dashboard) */}
         {currentScreen === 'dashboard' && (
           <Dashboard 
             onEnterFocus={() => setCurrentScreen('simplify')} 

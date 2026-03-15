@@ -1,12 +1,25 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle2, ArrowLeft, Leaf, Zap, RotateCcw, Sparkles, User, Wind, Coffee } from 'lucide-react';
-import confetti from 'canvas-confetti';
+import { CheckCircle2, ArrowLeft, Zap, User, Wind, Coffee } from 'lucide-react';
 
-export default function Simplify({ onBack }) {
+
+// 1. Define the props interface
+interface FocusmodeProps {
+  onBack: () => void;
+}
+
+// 2. Define the shape of a Task object
+interface SmartTask {
+  id: number;
+  source: string;
+  text: string;
+}
+
+export default function Simplify({ onBack }: FocusmodeProps) {
+  const FOCUS_TIME: number = 40 * 60; // 40 minutes in seconds
+
   // --- TIMER STATE ---
-  const FOCUS_TIME = 40 * 60; // 40 minutes in seconds
-  const [timeLeft, setTimeLeft] = useState(() => {
+  const [timeLeft, setTimeLeft] = useState<number>(() => {
     const savedTime = localStorage.getItem('focus-timer-left');
     const lastTimestamp = localStorage.getItem('focus-timer-timestamp');
     
@@ -16,68 +29,62 @@ export default function Simplify({ onBack }) {
     }
     return FOCUS_TIME;
   });
-  const [isActive, setIsActive] = useState(true);
+  
+  const [isActive] = useState<boolean>(true);
 
-  // --- EXISTING GROWTH STATE ---
-  const [growth, setGrowth] = useState(() => {
+  // --- GROWTH STATE ---
+  const [growth, setGrowth] = useState<number>(() => {
     const saved = localStorage.getItem('plant-growth');
     return saved ? Math.min(parseFloat(saved), 2.5) : 1; 
   });
 
-  const [taskIndex, setTaskIndex] = useState(0);
-  const [showLevelModal, setShowLevelModal] = useState(false);
-  const [currentLevelName, setCurrentLevelName] = useState("Sprout");
-  const [userName] = useState(() => localStorage.getItem('userName') || "User");
+  const [taskIndex, setTaskIndex] = useState<number>(0);
+  const [currentLevelName, setCurrentLevelName] = useState<string>("Sprout");
+  const [userName] = useState<string>(() => localStorage.getItem('userName') || "User");
+
+  const smartTasks: SmartTask[] = [
+    { id: 1, source: 'Slack', text: "Reply to Design Lead about header padding" },
+    { id: 2, source: 'Meet', text: "Prepare 3 bullet points for 2pm Sync" },
+    { id: 3, source: 'Email', text: "Confirm SAIT diploma application receipt" }
+  ];
 
   // --- TIMER LOGIC ---
   useEffect(() => {
-    let interval = null;
+    let interval: ReturnType<typeof setInterval> | null = null;
+    
     if (isActive && timeLeft > 0) {
       interval = setInterval(() => {
         setTimeLeft((prev) => prev - 1);
       }, 1000);
-    } else if (timeLeft === 0) {
-      clearInterval(interval);
     }
     
-    // Save state to localStorage for "Reset Prevention"
     localStorage.setItem('focus-timer-left', timeLeft.toString());
     localStorage.setItem('focus-timer-timestamp', Date.now().toString());
 
-    return () => clearInterval(interval);
+    return () => {
+      if (interval) clearInterval(interval);
+    };
   }, [isActive, timeLeft]);
 
-  const formatTime = (seconds) => {
+  useEffect(() => {
+    localStorage.setItem('plant-growth', growth.toString());
+    const levels: string[] = ["Sprout", "Sapling", "Tree", "Giant"];
+    setCurrentLevelName(levels[Math.floor(growth / 0.8)] || "Giant");
+  }, [growth]);
+
+  const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
   };
 
-  // --- BACKEND INTEGRATION NOTES (PRESERVED) ---
-  /*
-  1. Session Start: POST /api/sessions/start when entering.
-  2. Heartbeat: Send every few mins to sync timeLeft and growth.
-  3. Slack Automation: Toggle status to 🧘 via backend API.
-  4. Reset Prevention: Backend stores "Active Session" so refresh doesn't break timer.
-  */
-
-  useEffect(() => {
-    localStorage.setItem('plant-growth', growth.toString());
-    const levels = ["Sprout", "Sapling", "Tree", "Giant"];
-    setCurrentLevelName(levels[Math.floor(growth / 0.8)] || "Giant");
-  }, [growth]);
-
+  // Handle task completion
   const handleComplete = () => {
-    confetti({ particleCount: 40, spread: 30, origin: { x: 0.7, y: 0.8 } });
-    if (growth < 2.5) setGrowth(prev => prev + 0.15); 
-    setTaskIndex((prev) => (prev + 1) % smartTasks.length);
+    if (taskIndex < smartTasks.length - 1) {
+      setTaskIndex(taskIndex + 1);
+      setGrowth((prev) => Math.min(prev + 0.4, 2.5));
+    }
   };
-
-  const smartTasks = [
-    { id: 1, source: 'Slack', text: "Reply to Design Lead about header padding" },
-    { id: 2, source: 'Meet', text: "Prepare 3 bullet points for 2pm Sync" },
-    { id: 3, source: 'Email', text: "Confirm SAIT diploma application receipt" }
-  ];
 
   return (
     <div className="min-h-screen bg-[#f1f5f0] flex font-sans overflow-hidden">
@@ -91,7 +98,6 @@ export default function Simplify({ onBack }) {
         </div>
 
         <div className="relative z-10 flex flex-col items-center w-full">
-          {/* Plant Icon */}
           <motion.div 
             key={growth}
             animate={{ y: [0, -10, 0] }}
@@ -101,7 +107,6 @@ export default function Simplify({ onBack }) {
             {growth < 1.2 ? '🌱' : growth < 1.6 ? '🌿' : growth < 2.2 ? '🌳' : '🌲'}
           </motion.div>
 
-          {/* --- NEW FUNCTIONAL TIMER --- */}
           <div className="relative flex flex-col items-center">
             {timeLeft > 0 ? (
               <div className="text-center">
@@ -135,7 +140,6 @@ export default function Simplify({ onBack }) {
           </div>
         </div>
 
-        {/* Growth Bar */}
         <div className="relative z-10 w-full bg-emerald-50 p-6 rounded-3xl border border-emerald-100/50">
           <div className="flex justify-between items-center mb-2">
             <span className="text-[10px] font-black text-emerald-900/40 uppercase tracking-widest">Oxygen Level</span>

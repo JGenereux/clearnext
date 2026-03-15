@@ -2,39 +2,37 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Slack, ShieldCheck, Loader2, Lock, Mail, Wind } from 'lucide-react';
 
-export default function Connections({ onBack }) {
-  const [loginMethod, setLoginMethod] = useState(null); 
-  const [email, setEmail] = useState("");
-  const [username, setUsername] = useState("");
-  const [step, setStep] = useState('select'); 
+// 1. Define Props Interface
+interface ConnectionsProps {
+  onBack: () => void;
+}
 
-  const handleAuth = () => {
-    // Save state so App.jsx useEffect triggers the Dashboard view
+// 2. Define valid steps and login methods
+type AuthStep = 'select' | 'credentials' | 'username' | 'loading';
+type LoginMethod = 'slack' | 'google' | null;
+
+export default function Connections({ onBack }: ConnectionsProps) {
+  const [loginMethod, setLoginMethod] = useState<LoginMethod>(null); 
+  const [email, setEmail] = useState<string>("");
+  const [username, setUsername] = useState<string>("");
+  const [step, setStep] = useState<AuthStep>('select'); 
+
+  const handleAuth = (): void => {
+    // Save state so App.tsx useEffect triggers the Dashboard view
     localStorage.setItem('isLoggedIn', 'true');
     localStorage.setItem('userEmail', email);
     localStorage.setItem('userName', username || email.split('@')[0]);
-    /*
-    Connections / Auth Page
-    authentication flow for Slack/gmail/google This is the "Gateway" where you establish the user's identity.
-This is the "Gateway" where you establish the user's identity.
-
-Token Storage: After a successful Google/Slack login, the backend will send a JWT (JSON Web Token). Store this in localStorage or a secure cookie. Every subsequent request to the backend must include this token in the header.
-
-Integration Checks: The "Connect" buttons should check the backend for existing tokens. If a token exists, show "Connected" (Emerald style); if not, show the "Connect" action.
-
-Loading States: Since connecting to Slack involves a redirect, ensure you have a "Callback" route on your frontend to handle the code Slack sends back, which you then pass to your backend to exchange for a real access token.*/
     
-    // This now sends the user to the 'dashboard' screen in App.jsx
+    // Return to parent navigation
     onBack(); 
   };
 
-  // REFRESHING GREEN API IMAGE
-  const bgImageUrl = "https://images.unsplash.com/photo-1502082553048-f009c37129b9?auto=format&fit=crop&q=80&w=2000";
+  const bgImageUrl: string = "https://images.unsplash.com/photo-1502082553048-f009c37129b9?auto=format&fit=crop&q=80&w=2000";
 
   return (
     <div className="min-h-screen p-8 font-sans relative flex items-center justify-center overflow-hidden">
       
-      {/* --- FULL SCREEN API BACKGROUND --- */}
+      {/* --- FULL SCREEN BACKGROUND --- */}
       <div 
         className="absolute inset-0 z-0 bg-cover bg-center transition-transform duration-[10s] scale-110"
         style={{ 
@@ -72,7 +70,6 @@ Loading States: Since connecting to Slack involves a redirect, ensure you have a
               <p className="text-emerald-800/60 mb-10 text-sm font-medium">Step into your refreshed workspace.</p>
               
               <div className="flex flex-col gap-4">
-               
                 <button 
                   onClick={() => { setLoginMethod('slack'); setStep('credentials'); }}
                   className="flex items-center justify-center gap-4 bg-[#4A154B] text-white p-6 rounded-[2.5rem] hover:opacity-95 transition-all font-bold shadow-xl shadow-purple-900/20 active:scale-95"
@@ -94,7 +91,7 @@ Loading States: Since connecting to Slack involves a redirect, ensure you have a
             >
               <div className="flex justify-center mb-8">
                 <div className="p-4 bg-emerald-50 rounded-3xl text-[#4A154B]">
-                  {loginMethod === 'google' ? <img src="https://www.google.com/favicon.ico" className="w-10 h-10" /> : <Slack size={40} />}
+                  {loginMethod === 'slack' && <Slack size={40} />}
                 </div>
               </div>
               <h2 className="text-2xl font-black text-emerald-950 text-center mb-10 capitalize">Sign in to {loginMethod}</h2>
@@ -107,7 +104,7 @@ Loading States: Since connecting to Slack involves a redirect, ensure you have a
                     placeholder="Email address"
                     className="w-full pl-14 pr-6 py-5 bg-white/50 border border-emerald-100 rounded-2xl focus:ring-4 focus:ring-emerald-500/10 focus:border-emerald-500 outline-none transition-all font-bold"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
                   />
                 </div>
                 <div className="relative">
@@ -139,7 +136,7 @@ Loading States: Since connecting to Slack involves a redirect, ensure you have a
                 placeholder="Your Name"
                 className="w-full p-8 rounded-[3rem] border-4 border-white bg-white/40 backdrop-blur-xl text-center text-3xl font-black text-emerald-900 placeholder-emerald-900/20 focus:border-emerald-500 outline-none shadow-2xl transition-all mb-8"
                 value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)}
               />
               
               <button 
