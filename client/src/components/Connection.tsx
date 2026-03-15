@@ -2,29 +2,30 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Slack, ShieldCheck, Loader2, Lock, Mail, Wind } from 'lucide-react';
 
-// 1. Define Props Interface
+// 1. Updated Props Interface
 interface ConnectionsProps {
   onBack: () => void;
+  onLoginSuccess: () => void; // Added this to match App.tsx
 }
 
-// 2. Define valid steps and login methods
 type AuthStep = 'select' | 'credentials' | 'username' | 'loading';
 type LoginMethod = 'slack' | 'google' | null;
 
-export default function Connections({ onBack }: ConnectionsProps) {
+export default function Connections({ onBack, onLoginSuccess }: ConnectionsProps) {
   const [loginMethod, setLoginMethod] = useState<LoginMethod>(null); 
   const [email, setEmail] = useState<string>("");
   const [username, setUsername] = useState<string>("");
   const [step, setStep] = useState<AuthStep>('select'); 
 
   const handleAuth = (): void => {
-    // Save state so App.tsx useEffect triggers the Dashboard view
+    // Save state
     localStorage.setItem('isLoggedIn', 'true');
     localStorage.setItem('userEmail', email);
     localStorage.setItem('userName', username || email.split('@')[0]);
     
-    // Return to parent navigation
-    onBack(); 
+    // CHANGE HERE: Instead of going "Back" to landing, 
+    // we tell the parent that login was a SUCCESS.
+    onLoginSuccess(); 
   };
 
   const bgImageUrl: string = "https://images.unsplash.com/photo-1502082553048-f009c37129b9?auto=format&fit=crop&q=80&w=2000";
@@ -45,7 +46,7 @@ export default function Connections({ onBack }: ConnectionsProps) {
         <motion.div 
           animate={{ x: [0, 40, 0], opacity: [0.4, 0.7, 0.4] }}
           transition={{ duration: 12, repeat: Infinity }}
-          className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-emerald-300/20 blur-[100px] rounded-full"
+          className="absolute top-[-10%] left-[-10%] w-125 h-125 bg-emerald-300/20 blur-[100px] rounded-full"
         />
       </div>
 
@@ -60,8 +61,9 @@ export default function Connections({ onBack }: ConnectionsProps) {
               animate={{ opacity: 1, scale: 1 }} 
               exit={{ opacity: 0, scale: 1.1 }}
             >
+              {/* This stays onBack because if they click this, they haven't logged in yet */}
               <button onClick={onBack} className="flex items-center gap-2 text-emerald-900/60 hover:text-emerald-900 mb-8 font-black uppercase text-[10px] tracking-widest transition-all">
-                <ArrowLeft size={14} /> Return to Home 
+                <ArrowLeft size={14} /> Return to Login 
               </button>
 
               <h1 className="text-5xl font-black text-emerald-950 mb-3 tracking-tighter leading-none">

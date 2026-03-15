@@ -5,23 +5,33 @@ import Simplify from './components/Focusmode';
 import Connections from './components/Connection'; 
 import Dashboard from './components/Dashboard'; 
 
-// 1. Define the possible screens as a Type
 type Screen = 'landing' | 'connections' | 'dashboard' | 'simplify';
 
 export default function App() {
-  // 2. Explicitly type the state
-  const [currentScreen, setCurrentScreen] = useState<Screen>('landing');
+  // 1. Initialize state based on storage IMMEDIATELY
+  const [currentScreen, setCurrentScreen] = useState<Screen>(() => {
+    const savedLogin = localStorage.getItem('isLoggedIn');
+    return savedLogin === 'true' ? 'dashboard' : 'landing';
+  });
 
-  useEffect(() => {
-    // Check if user is already logged in
-    if (localStorage.getItem('isLoggedIn') === 'true') {
-      setCurrentScreen('dashboard');
-    }
-  }, []);
-
+  // 2. Navigation Handlers
   const handleLogout = (): void => {
-    localStorage.clear();
+    localStorage.removeItem('isLoggedIn'); // Specifically remove login flag
     setCurrentScreen('landing');
+  };
+
+  const handleLoginSuccess = () => {
+    localStorage.setItem('isLoggedIn', 'true');
+    setCurrentScreen('dashboard');
+  };
+
+  const handleLandingButtonClick = () => {
+    const savedLogin = localStorage.getItem('isLoggedIn');
+    if (savedLogin === 'true') {
+      setCurrentScreen('dashboard');
+    } else {
+      setCurrentScreen('connections');
+    }
   };
 
   const o2SplashImage: string = "https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?auto=format&fit=crop&q=80&w=1200";
@@ -68,10 +78,10 @@ export default function App() {
                   The digital world is loud. Clearnext is a breath of fresh air for your workflow—helping you resolve noise and grow calm.
                 </p>
                 <button 
-                  onClick={() => setCurrentScreen('connections')}
+                  onClick={handleLandingButtonClick}
                   className="bg-emerald-700 text-white px-12 py-6 rounded-3xl font-black text-xl flex items-center gap-3 hover:bg-emerald-800 transition-all shadow-2xl shadow-emerald-900/20 active:scale-95"
                 >
-                  Login <ArrowRight />
+                  {localStorage.getItem('isLoggedIn') === 'true' ? 'Open Dashboard' : 'Get Started'} <ArrowRight />
                 </button>
               </div>
 
@@ -81,7 +91,7 @@ export default function App() {
               >
                 <img 
                   src={o2SplashImage} 
-                  className="relative w-full aspect-[4/5] object-cover rounded-[80px] shadow-2xl border-[16px] border-white/50 backdrop-blur-sm"
+                  className="relative w-full aspect-4/5 object-cover rounded-[80px] shadow-2xl border-16 border-white/50 backdrop-blur-sm"
                   alt="Nature"
                 />
               </motion.div>
@@ -91,7 +101,10 @@ export default function App() {
 
         {/* 2. LOGIN/CONNECTIONS FLOW */}
         {currentScreen === 'connections' && (
-          <Connections onBack={() => setCurrentScreen('dashboard')} />
+          <Connections 
+            onBack={() => setCurrentScreen('landing')} 
+            onLoginSuccess={handleLoginSuccess} 
+          />
         )}
 
         {/* 3. TASK HUB (Dashboard) */}
