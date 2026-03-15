@@ -1,6 +1,9 @@
 import React, { JSX, useState, useEffect } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
 import { Play, CheckCircle, LogOut, Leaf, X, Wind } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { apiFetch } from '../lib/api';
+import { FocusTask } from './Focusmode';
 
 // --- Types ---
 interface Task {
@@ -21,20 +24,20 @@ interface MoodOption {
 interface DashboardProps {
   onEnterFocus: () => void;
   onLogout: () => void;
+  onTasksLoaded: (tasks: FocusTask[]) => void;
 }
 
-export default function Dashboard({ onEnterFocus, onLogout }: DashboardProps): JSX.Element {
+export default function Dashboard({ onEnterFocus, onLogout, onTasksLoaded }: DashboardProps): JSX.Element {
+  const { user } = useAuth();
+
   // --- State ---
   const [isMoodModalOpen, setIsMoodModalOpen] = useState<boolean>(false);
   const [selectedMood, setSelectedMood] = useState<string | null>(null);
+  const [moodHistory, setMoodHistory] = useState<{ label: string; emoji: string; level: number; timestamp: string }[]>([]);
   const [oxygen, setOxygen] = useState<number>(1.20);
   const [kodaMessage, setKodaMessage] = useState<string>("Let's get focused! 🌿");
   
-  const [tasks, setTasks] = useState<Task[]>([
-    { id: 1, title: "Reply to Design Lead", source: "Slack", status: "pending", reward: 0.15 },
-    { id: 2, title: "Prepare 3 bullet points", source: "Meet", status: "pending", reward: 0.10 },
-    { id: 3, title: "Confirm SAIT application", source: "Email", status: "completed", reward: 0.20 },
-  ]);
+  const [tasks, setTasks] = useState<Task[]>([]);
 
   const [petStats, setPetStats] = useState({ hunger: 70, happiness: 85, energy: 100 });
   const [petAction, setPetAction] = useState<string | null>(null);
@@ -58,6 +61,36 @@ export default function Dashboard({ onEnterFocus, onLogout }: DashboardProps): J
   ];
 
   // --- Effects ---
+  useEffect(() => {
+    apiFetch('/api/mood')
+      .then(res => res.json())
+      .then(data => {
+        if (data.moods) setMoodHistory(data.moods);
+        if (data.current) setSelectedMood(data.current.label);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    apiFetch('/api/now', { method: 'POST' })
+      .then(res => res.json())
+      .then(data => {
+        const now = data.now;
+        const upNext = data.up_next || [];
+        const all = [now, ...upNext].filter(Boolean);
+        const mapped = all.map((t: any, i: number) => ({
+          id: i + 1,
+          title: t.title,
+          source: t.source,
+          status: t.status || 'pending',
+          reward: t.reward ?? 0,
+        }));
+        setTasks(mapped);
+        onTasksLoaded(mapped.map(t => ({ id: t.id, title: t.title, source: t.source })));
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     const interval = setInterval(() => {
       if (!petAction && petStats.energy > 30) {
@@ -93,6 +126,21 @@ export default function Dashboard({ onEnterFocus, onLogout }: DashboardProps): J
       }
       return task;
     }));
+  };
+
+  const saveMood = () => {
+    const mood = moodOptions.find(m => m.label === selectedMood);
+    if (!mood) return;
+    apiFetch('/api/mood', {
+      method: 'POST',
+      body: JSON.stringify({ label: mood.label, emoji: mood.emoji, level: mood.level }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.moods) setMoodHistory(data.moods);
+      })
+      .catch(() => {});
+    setIsMoodModalOpen(false);
   };
 
   const feedPet = () => {
@@ -133,7 +181,7 @@ export default function Dashboard({ onEnterFocus, onLogout }: DashboardProps): J
                   </motion.button>
                 ))}
               </div>
-              <button onClick={() => setIsMoodModalOpen(false)} className="w-full py-5 bg-emerald-950 text-white rounded-4xl font-black text-lg">Save Today's Vibe</button>
+              <button onClick={saveMood} className="w-full py-5 bg-emerald-950 text-white rounded-4xl font-black text-lg">Save Today's Vibe</button>
             </motion.div>
           </div>
         )}
@@ -254,13 +302,25 @@ export default function Dashboard({ onEnterFocus, onLogout }: DashboardProps): J
 
             <section className="bg-white/40 backdrop-blur-xl p-8 rounded-[3.5rem] border border-white/50">
               <h3 className="text-[10px] font-bold text-emerald-900/40 uppercase tracking-[0.3em] mb-8">Daily Vibe</h3>
-              <div className="flex justify-between items-end h-32 gap-3 px-1">
-                {[45, 75, 95, 60, 85].map((level, i) => (
-                  <div key={i} className="flex flex-col items-center gap-3 flex-1">
-                    <motion.div initial={{ height: 0 }} animate={{ height: `${level}%` }} className={`w-full rounded-2xl ${level > 70 ? 'bg-emerald-500/30' : 'bg-emerald-950/10'}`} />
-                    <span className="text-[10px] font-black text-emerald-900/20">{['M', 'T', 'W', 'T', 'F'][i]}</span>
-                  </div>
-                ))}
+              <div className="flex justify-between items-end gap-3 px-1" style={{ height: 128 }}>
+                {(() => {
+                  const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+                  const last5 = moodHistory.slice(0, 5);
+                  const bars = last5.length > 0
+                    ? last5.map(m => ({ level: m.level, day: dayLabels[new Date(m.timestamp).getDay() === 0 ? 6 : new Date(m.timestamp).getDay() - 1] })).reverse()
+                    : [45, 75, 95, 60, 85].map((l, i) => ({ level: l, day: ['M', 'T', 'W', 'T', 'F'][i] }));
+                  return bars.map((bar, i) => (
+                    <div key={i} className="flex flex-col items-center justify-end flex-1" style={{ height: '100%' }}>
+                      <motion.div
+                        initial={{ height: 0 }}
+                        animate={{ height: `${bar.level}%` }}
+                        transition={{ duration: 0.6, ease: 'easeOut' }}
+                        className={`w-full rounded-2xl ${bar.level > 70 ? 'bg-emerald-500/30' : 'bg-emerald-950/10'}`}
+                      />
+                      <span className="text-[10px] font-black text-emerald-900/20 mt-3 shrink-0">{bar.day}</span>
+                    </div>
+                  ));
+                })()}
               </div>
               <button onClick={() => setIsMoodModalOpen(true)} className="w-full mt-8 py-4 bg-white/60 hover:bg-white rounded-2xl text-[10px] font-black text-emerald-800 uppercase tracking-[0.2em] transition-all border border-emerald-50" >
                 Log Today's Mood

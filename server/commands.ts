@@ -3,6 +3,15 @@ import fetch from 'node-fetch';
 import { formatNowMessage, formatDoneMessage, formatAllTasksMessage, formatRecapMessage } from './formatter';
 
 const API_BASE = process.env.API_BASE || 'http://localhost:3000';
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || '';
+
+function internalHeaders(extra?: Record<string, string>): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    'X-Internal-Key': INTERNAL_API_KEY,
+    ...extra,
+  };
+}
 
 export function registerCommands(app: App) {
   // /now slash command
@@ -17,7 +26,7 @@ export function registerCommands(app: App) {
     try {
       const res = await fetch(`${API_BASE}/api/now`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: internalHeaders(),
         body: JSON.stringify({
           user_id: command.user_id,
           user_name: command.user_name
@@ -50,7 +59,7 @@ export function registerCommands(app: App) {
     try {
       const res = await fetch(`${API_BASE}/api/done`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: internalHeaders(),
         body: JSON.stringify({ task_id: taskId, action: 'done' })
       });
 
@@ -71,7 +80,7 @@ export function registerCommands(app: App) {
     try {
       const res = await fetch(`${API_BASE}/api/done`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: internalHeaders(),
         body: JSON.stringify({ task_id: taskId, action: 'skip' })
       });
 
@@ -100,7 +109,7 @@ export function registerCommands(app: App) {
     try {
       const res = await fetch(`${API_BASE}/api/later`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: internalHeaders(),
         body: JSON.stringify({
           user_id: command.user_id,
           user_name: command.user_name,
@@ -127,7 +136,9 @@ export function registerCommands(app: App) {
     await ack();
 
     try {
-      const res = await fetch(`${API_BASE}/api/recap?user_id=${command.user_id}`);
+      const res = await fetch(`${API_BASE}/api/recap?user_id=${command.user_id}`, {
+        headers: { 'X-Internal-Key': INTERNAL_API_KEY },
+      });
       const data = await res.json() as any;
       const message = formatRecapMessage(data.done_tasks, data.remaining_tasks, data.total_minutes);
       await respond({
@@ -144,11 +155,14 @@ export function registerCommands(app: App) {
   });
 
   // See all tasks
-  app.action('see_all', async ({ ack, respond }) => {
+  app.action('see_all', async ({ ack, respond, body }) => {
     await ack();
 
     try {
-      const res = await fetch(`${API_BASE}/api/tasks`);
+      const userId = (body as any).user?.id || '';
+      const res = await fetch(`${API_BASE}/api/tasks?user_id=${userId}`, {
+        headers: { 'X-Internal-Key': INTERNAL_API_KEY },
+      });
       const tasks = await res.json();
       const message = formatAllTasksMessage(tasks);
       await respond(message);

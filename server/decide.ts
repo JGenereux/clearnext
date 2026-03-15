@@ -9,7 +9,7 @@ export async function makeDecision(
   const activeTasks = tasks.filter(t => !t.done);
   if (activeTasks.length === 0) {
     return {
-      now: { task_id: '', title: 'All done!', reason: 'No pending tasks', estimated_minutes: 0, source: 'slack' },
+      now: { task_id: '', title: 'All done!', reason: 'No pending tasks', estimated_minutes: 0, source: 'slack', reward: 0, status: 'completed' },
       up_next: [],
       context_blocks: [],
       total_tasks: 0,
@@ -43,15 +43,33 @@ export async function makeDecision(
     decision.total_tasks = typeof decision.total_tasks === 'number' ? decision.total_tasks : activeTasks.length;
     decision.estimated_total_minutes = typeof decision.estimated_total_minutes === 'number' ? decision.estimated_total_minutes : 0;
 
-    // Backfill source from input tasks if the AI omitted it
+    // Backfill source, reward, and status from input tasks if the AI omitted them
     const taskMap = new Map(activeTasks.map(t => [t.id, t]));
-    const fillSource = (nt: any) => {
+
+    const computeFallbackReward = (task: Task | undefined): number => {
+      if (!task) return 0.05;
+      let reward = 0.05;
+      reward += (task.urgency_signals?.length || 0) * 0.03;
+      if ((task.mentioned_count || 0) >= 2) reward += 0.05;
+      if (task.source === 'meet') reward += 0.05;
+      if (task.deadline_hint) reward += 0.02;
+      return Math.min(0.30, Math.max(0.05, parseFloat(reward.toFixed(2))));
+    };
+
+    const fillDefaults = (nt: any) => {
       if (!nt.source) {
         nt.source = taskMap.get(nt.task_id)?.source ?? 'slack';
       }
+      if (typeof nt.reward !== 'number') {
+        nt.reward = computeFallbackReward(taskMap.get(nt.task_id));
+      }
+      nt.reward = Math.min(0.30, Math.max(0.05, parseFloat(Number(nt.reward).toFixed(2))));
+      if (!nt.status) {
+        nt.status = 'pending';
+      }
     };
-    fillSource(decision.now);
-    decision.up_next.forEach(fillSource);
+    fillDefaults(decision.now);
+    decision.up_next.forEach(fillDefaults);
 
     return decision;
   } catch (err) {

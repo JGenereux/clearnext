@@ -32,7 +32,15 @@ Scoring heuristic (use this to pick the #1 task):
 - +2 if mentioned_count >= 2
 - +1 if there's a deadline_hint
 
-Pick the highest-scoring task as "now". Put the next 3 as "up_next". Include each task's "source" ("slack", "meet", or "calendar") from the input tasks.
+Reward heuristic (O₂ reward for completing a task — used to gamify productivity):
+- Base reward: 0.05
+- +0.03 for each urgency signal
+- +0.05 if mentioned_count >= 2
+- +0.05 if it came from a meeting (source: "meet")
+- +0.02 if there's a deadline_hint
+- Round to 2 decimal places. Minimum 0.05, maximum 0.30.
+
+Pick the highest-scoring task as "now". Put the next 3 as "up_next". Include each task's "source" ("slack", "meet", or "calendar") from the input tasks. Every task must include a "reward" (number) and "status" ("pending").
 
 Group tasks by domain/topic into context_blocks. Mark the block containing the "now" task as do_first: true.
 
@@ -43,10 +51,12 @@ Output format (return ONLY this JSON, no markdown, no preamble):
     "title": "task title",
     "reason": "Short explanation of why this is #1 (mention who asked, urgency, etc.)",
     "estimated_minutes": 15,
-    "source": "slack"
+    "source": "slack",
+    "reward": 0.14,
+    "status": "pending"
   },
   "up_next": [
-    { "task_id": "t2", "title": "...", "reason": "...", "estimated_minutes": 10, "source": "meet" }
+    { "task_id": "t2", "title": "...", "reason": "...", "estimated_minutes": 10, "source": "meet", "reward": 0.10, "status": "pending" }
   ],
   "context_blocks": [
     { "name": "Block Name", "task_ids": ["t1", "t3"], "do_first": true }

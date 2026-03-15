@@ -8,36 +8,11 @@ import { makeDecision } from './decide';
 import { Task, Decision } from './types';
 import { getSlackContext } from './slack-reader';
 import meetRouter, { getGoogleCalendarContext, getGoogleMeetContext } from './routes/meet';
-import { saveTasks, getTasks, markTaskDone, saveDecision, getLatestDecision } from './supabase';
+import { addTask, getTasks, saveTasks, markTaskDone, saveDecision, getLatestDecision, storeUserProviderToken, getUserProviderToken, getMoods, addMood, getCurrentMood, MoodEntry } from './supabase';
+import { requireAuth, AuthenticatedRequest } from './middleware/auth';
 
 const PORT = process.env.PORT || 3000;
-
-// --- Per-user session store ---
-interface UserSession {
-  tasks: Map<string, Task>;
-  decision: Decision | null;
-  lastUpdated: number;
-}
-
-const sessions = new Map<string, UserSession>();
-const SESSION_TTL = 60 * 60 * 1000; // 1 hour
-
-function getSession(userId: string): UserSession {
-  let session = sessions.get(userId);
-  if (!session || Date.now() - session.lastUpdated > SESSION_TTL) {
-    session = { tasks: new Map(), decision: null, lastUpdated: Date.now() };
-    sessions.set(userId, session);
-  }
-  return session;
-}
-
-// Cleanup old sessions every 30 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, session] of sessions) {
-    if (now - session.lastUpdated > SESSION_TTL) sessions.delete(id);
-  }
-}, 30 * 60 * 1000);
+const REFRESH_COOLDOWN_MS = 1000; // 1 second (demo mode)
 
 // --- Rate limiting (per user, 10 req/min) ---
 const rateLimits = new Map<string, number[]>();
@@ -54,18 +29,84 @@ function isRateLimited(userId: string): boolean {
   return false;
 }
 
-// --- Input validation ---
-function validateUserId(id: unknown): string | null {
-  if (typeof id !== 'string') return null;
-  const clean = id.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 50);
-  return clean || null;
+interface GatherResult {
+  slack: string;
+  transcript: string;
+  calendar: string;
+  hints: string[];
 }
 
-async function gatherInputs(userId: string) {
-  const slack = await getSlackContext(userId);
-  const transcript = await getGoogleMeetContext('Jace', userId);
-  const calendar = await getGoogleCalendarContext(userId);
-  return { slack, transcript, calendar};
+async function gatherInputs(userId: string, userName: string, slackUserId: string | null): Promise<GatherResult> {
+  const hasSlack = !!slackUserId;
+  const hasGoogle = !!(await getUserProviderToken(userId, 'google'));
+
+  const hints: string[] = [];
+  let slack = '';
+  let transcript = '';
+  let calendar = '';
+
+  if (hasSlack) {
+    try {
+      slack = await getSlackContext(slackUserId!);
+    } catch (err) {
+      console.error('Failed to fetch Slack context:', (err as Error).message);
+    }
+  } else {
+    hints.push('Connect Slack to let ClearNext surface tasks buried in your messages.');
+  }
+
+  if (hasGoogle) {
+    try {
+      [transcript, calendar] = await Promise.all([
+        getGoogleMeetContext(userName, userId),
+        getGoogleCalendarContext(userId),
+      ]);
+    } catch (err) {
+      console.error('Failed to fetch Google context:', (err as Error).message);
+    }
+  } else {
+    hints.push('Connect Google to pull action items from meetings and your calendar.');
+  }
+
+  return { slack, transcript, calendar, hints };
+}
+
+function buildFallbackDecision(tasks: Task[]): Decision {
+  const pending = tasks.filter(t => !t.done);
+  if (pending.length === 0) {
+    return {
+      now: { task_id: '', title: 'All done!', reason: 'No pending tasks', estimated_minutes: 0, source: 'slack', reward: 0, status: 'completed' },
+      up_next: [],
+      context_blocks: [],
+      total_tasks: 0,
+      estimated_total_minutes: 0
+    };
+  }
+
+  const [first, ...rest] = pending;
+  return {
+    now: {
+      task_id: first.id,
+      title: first.title,
+      reason: first.description || 'Task from your connected sources',
+      estimated_minutes: 15,
+      source: first.source,
+      reward: 0.10,
+      status: 'pending'
+    },
+    up_next: rest.map(t => ({
+      task_id: t.id,
+      title: t.title,
+      reason: t.description || '',
+      estimated_minutes: 15,
+      source: t.source,
+      reward: 0.10,
+      status: 'pending' as const
+    })),
+    context_blocks: [],
+    total_tasks: pending.length,
+    estimated_total_minutes: pending.length * 15
+  };
 }
 
 // --- Mock data fallbacks ---
@@ -75,11 +116,13 @@ const MOCK_DECISION: Decision = {
     title: 'Fix Shopify webhook',
     reason: 'Eric mentioned this 3x, blocking deploy',
     estimated_minutes: 9,
-    source: 'slack'
+    source: 'slack',
+    reward: 0.19,
+    status: 'pending'
   },
   up_next: [
-    { task_id: 't2', title: 'Review PR #42', reason: 'Sarah requested review this morning', estimated_minutes: 15, source: 'slack' },
-    { task_id: 't3', title: 'Update API docs', reason: 'Needed before client demo at 4pm', estimated_minutes: 20, source: 'meet' }
+    { task_id: 't2', title: 'Review PR #42', reason: 'Sarah requested review this morning', estimated_minutes: 15, source: 'slack', reward: 0.10, status: 'pending' },
+    { task_id: 't3', title: 'Update API docs', reason: 'Needed before client demo at 4pm', estimated_minutes: 20, source: 'meet', reward: 0.15, status: 'pending' }
   ],
   context_blocks: [
     { name: 'Shopify Integration', task_ids: ['t1', 't3'], do_first: true },
@@ -106,163 +149,157 @@ api.get('/', (_req: Request, res: Response) => {
 
 api.use('/meet', meetRouter);
 
-// --- Slack OAuth for frontend login ---
-const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID || '';
-const SLACK_CLIENT_SECRET = process.env.SLACK_CLIENT_SECRET || '';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 
-api.get('/auth/slack', (_req: Request, res: Response) => {
-  const scopes = 'identity.basic,identity.avatar';
-  const redirectUri = `${_req.protocol}://${_req.get('host')}/auth/slack/callback`;
-  const url = `https://slack.com/oauth/v2/authorize?user_scope=${scopes}&client_id=${SLACK_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}`;
-  res.redirect(url);
-});
+// --- Store provider token endpoint ---
+api.post('/api/auth/store-token', requireAuth, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  const { provider_token, provider_refresh_token, provider } = req.body;
 
-api.get('/auth/slack/callback', async (req: Request, res: Response) => {
-  const { code } = req.query;
-  if (!code || typeof code !== 'string') {
-    res.status(400).json({ error: 'Missing code' });
+  if (!provider_token || !provider) {
+    res.status(400).json({ error: 'Missing provider_token or provider' });
     return;
   }
 
   try {
-    const redirectUri = `${req.protocol}://${req.get('host')}/auth/slack/callback`;
-    const response = await fetch('https://slack.com/api/oauth.v2.access', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id: SLACK_CLIENT_ID,
-        client_secret: SLACK_CLIENT_SECRET,
-        code,
-        redirect_uri: redirectUri
-      })
-    });
-
-    const data = await response.json() as any;
-    if (!data.ok) {
-      res.redirect(`${FRONTEND_URL}?error=slack_auth_failed`);
-      return;
-    }
-
-    const userId = data.authed_user?.id;
-    const userName = data.authed_user?.access_token ? undefined : undefined;
-
-    // Get user info for display name
-    let displayName = 'User';
-    let avatar = '';
-    if (data.authed_user?.access_token) {
-      const identityRes = await fetch('https://slack.com/api/users.identity', {
-        headers: { 'Authorization': `Bearer ${data.authed_user.access_token}` }
-      });
-      const identity = await identityRes.json() as any;
-      if (identity.ok) {
-        displayName = identity.user?.name || 'User';
-        avatar = identity.user?.image_48 || '';
-      }
-    }
-
-    // Redirect to frontend with user info
-    const params = new URLSearchParams({
-      user_id: userId,
-      user_name: displayName,
-      avatar
-    });
-    res.redirect(`${FRONTEND_URL}?${params.toString()}`);
+    await storeUserProviderToken(authReq.userId, provider, provider_token, provider_refresh_token || null);
+    res.json({ success: true });
   } catch (err) {
-    console.error('Slack OAuth error:', (err as Error).message);
-    res.redirect(`${FRONTEND_URL}?error=slack_auth_failed`);
+    console.error('store-token error:', (err as Error).message);
+    res.status(500).json({ error: (err as Error).message });
   }
 });
 
-api.post('/api/now', async (req: Request, res: Response) => {
-  const userId = validateUserId(req.body.user_id);
-  const userName = typeof req.body.user_name === 'string' ? req.body.user_name.slice(0, 100) : 'User';
-
-  if (!userId) {
-    res.status(400).json({ error: 'Invalid user_id' });
-    return;
-  }
-
+api.post('/api/now', requireAuth, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  const userId = authReq.userId;
+  const userName = authReq.userName;
   if (isRateLimited(userId)) {
     res.status(429).json({ error: 'Too many requests. Try again in a minute.' });
     return;
   }
 
   try {
-    const inputs = await gatherInputs(userId);
-    const tasks = await extractTasks(inputs.slack, inputs.transcript, inputs.calendar, userName);
+    const latest = await getLatestDecision(userId);
+    if (latest) {
+      const age = Date.now() - new Date(latest.created_at).getTime();
+      if (age < REFRESH_COOLDOWN_MS) {
+        const tasks = await getTasks(userId);
+        const pendingTasks = tasks.filter(t => !t.done);
 
-    if (tasks.length === 0) {
-      res.json({ ...MOCK_DECISION, is_mock: true });
+        const decision = latest.decision;
+        const pendingIds = new Set(pendingTasks.map(t => t.id));
+
+        const filteredUpNext = decision.up_next.filter(t => pendingIds.has(t.task_id));
+        const nowStillPending = pendingIds.has(decision.now?.task_id);
+
+        let adjustedDecision: Decision;
+        if (nowStillPending) {
+          adjustedDecision = { ...decision, up_next: filteredUpNext };
+        } else if (filteredUpNext.length > 0) {
+          const [newNow, ...rest] = filteredUpNext;
+          adjustedDecision = { ...decision, now: newNow, up_next: rest };
+        } else {
+          adjustedDecision = { ...decision, now: decision.now, up_next: [] };
+        }
+
+        res.json({ ...adjustedDecision, cached: true, tasks: pendingTasks, fetched_at: latest.created_at });
+        return;
+      }
+    }
+
+    // Fresh fetch — gather inputs and extract tasks
+    const inputs = await gatherInputs(userId, userName, authReq.slackUserId);
+    const newTasks = await extractTasks(inputs.slack, inputs.transcript, inputs.calendar, userName);
+
+    if (newTasks.length === 0) {
+      // No new tasks from AI — check if we have existing tasks in DB
+      const existingTasks = await getTasks(userId);
+      const pendingExisting = existingTasks.filter(t => !t.done);
+      if (pendingExisting.length > 0) {
+        const decision = await makeDecision(pendingExisting, userName);
+        const finalDecision = decision || buildFallbackDecision(pendingExisting);
+        await saveDecision(userId, finalDecision);
+        res.json({ ...finalDecision, hints: inputs.hints, tasks: pendingExisting, fetched_at: new Date().toISOString() });
+        return;
+      }
+      res.json({ ...MOCK_DECISION, is_mock: true, hints: inputs.hints });
       return;
     }
 
-    const session = getSession(userId);
-    session.tasks.clear();
-    tasks.forEach(t => session.tasks.set(t.id, t));
-    session.lastUpdated = Date.now();
+    // Merge new tasks with existing DB tasks
+    await saveTasks(userId, newTasks);
+    const pendingTasks = newTasks;
 
-    // Save tasks to Supabase
-    await saveTasks(userId, tasks);
-
-    const decision = await makeDecision(tasks, userName);
-    if (!decision) {
-      res.json({ ...MOCK_DECISION, is_mock: true });
+    if (pendingTasks.length === 0) {
+      // All extracted tasks were already completed
+      const allDone = buildFallbackDecision([]);
+      res.json({ ...allDone, hints: inputs.hints, tasks: [], fetched_at: new Date().toISOString() });
       return;
     }
 
-    session.decision = decision;
-    await saveDecision(userId, decision);
-    res.json(decision);
+    const decision = await makeDecision(pendingTasks, userName);
+    const finalDecision = decision || buildFallbackDecision(pendingTasks);
+
+    await saveDecision(userId, finalDecision);
+    res.json({ ...finalDecision, hints: inputs.hints, tasks: pendingTasks, fetched_at: new Date().toISOString() });
   } catch (err) {
     console.error('/api/now error:', (err as Error).message);
+    // Try to return existing tasks from DB rather than mock data
+    try {
+      const existingTasks = await getTasks(userId);
+      const pending = existingTasks.filter(t => !t.done);
+      if (pending.length > 0) {
+        const fallback = buildFallbackDecision(pending);
+        res.json({ ...fallback, tasks: pending, fetched_at: new Date().toISOString() });
+        return;
+      }
+    } catch { /* DB also failed, fall through to mock */ }
     res.json({ ...MOCK_DECISION, is_mock: true });
   }
 });
 
-api.post('/api/done', async (req: Request, res: Response) => {
-  const { task_id, action } = req.body;
-  const userId = validateUserId(req.body.user_id);
+api.post('/api/done', requireAuth, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  const { task_id } = req.body;
+  const userId = authReq.userId;
 
-  // Find the session that has this task
-  let session: UserSession | undefined;
-  if (userId) {
-    session = sessions.get(userId);
-  }
-  // Fallback: search all sessions for the task
-  if (!session) {
-    for (const s of sessions.values()) {
-      if (s.tasks.has(task_id)) { session = s; break; }
-    }
+  if (!task_id) {
+    res.status(400).json({ error: 'Missing task_id' });
+    return;
   }
 
-  if (session) {
-    const task = session.tasks.get(task_id);
-    if (task) task.done = true;
-    await markTaskDone(task_id);
+  const allTasks = await markTaskDone(userId, task_id);
+  const pendingTasks = allTasks.filter(t => !t.done);
 
-    if (session.decision && session.decision.up_next.length > 0) {
-      const nextTask = session.decision.up_next.shift()!;
-      session.decision.now = nextTask;
-      res.json({ next_task: nextTask });
+  // Check latest decision for ordering
+  const latest = await getLatestDecision(userId);
+  if (latest) {
+    const decision = latest.decision;
+    const pendingIds = new Set(pendingTasks.map(t => t.id));
+
+    // Find next task from the decision's up_next that's still pending
+    const nextFromDecision = decision.up_next.find(t => pendingIds.has(t.task_id) && t.task_id !== task_id);
+    if (nextFromDecision) {
+      res.json({ next_task: nextFromDecision, remaining: pendingTasks.length });
       return;
     }
   }
 
-  res.json({ next_task: null });
+  res.json({ next_task: null, remaining: pendingTasks.length });
 });
 
-api.post('/api/later', async (req: Request, res: Response) => {
-  const userId = validateUserId(req.body.user_id);
-  const userName = typeof req.body.user_name === 'string' ? req.body.user_name.slice(0, 100) : 'User';
+api.post('/api/later', requireAuth, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  const userId = authReq.userId;
+  const userName = authReq.userName;
   const text = typeof req.body.text === 'string' ? req.body.text.slice(0, 500) : '';
 
-  if (!userId || !text) {
-    res.status(400).json({ error: 'Invalid user_id or empty text' });
+  if (!text) {
+    res.status(400).json({ error: 'Empty text' });
     return;
   }
 
-  const session = getSession(userId);
   const taskId = `t_${Date.now()}_manual`;
   const task: Task = {
     id: taskId,
@@ -278,61 +315,60 @@ api.post('/api/later', async (req: Request, res: Response) => {
     done: false
   };
 
-  session.tasks.set(taskId, task);
-  session.lastUpdated = Date.now();
-  await saveTasks(userId, [task]);
-
-  res.json({ task, total_tasks: session.tasks.size });
+  const allTasks = await addTask(userId, task);
+  res.json({ task, total_tasks: allTasks.length });
 });
 
-api.get('/api/recap', async (req: Request, res: Response) => {
-  const userId = validateUserId(req.query.user_id);
+api.get('/api/recap', requireAuth, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  const userId = authReq.userId;
 
-  if (!userId) {
-    res.status(400).json({ error: 'Invalid user_id' });
-    return;
-  }
+  const allTasks = await getTasks(userId);
 
-  // Try Supabase first
-  let allTasks = await getTasks(userId);
-
-  // Fallback to in-memory
   if (allTasks.length === 0) {
-    const session = sessions.get(userId);
-    if (!session || session.tasks.size === 0) {
-      res.json({ done_tasks: [], remaining_tasks: [], total_minutes: 0 });
-      return;
-    }
-    allTasks = Array.from(session.tasks.values());
+    res.json({ done_tasks: [], remaining_tasks: [], total_minutes: 0 });
+    return;
   }
 
   const doneTasks = allTasks.filter(t => t.done);
   const remainingTasks = allTasks.filter(t => !t.done);
 
-  const decision = await getLatestDecision(userId);
-  const totalMinutes = decision?.estimated_total_minutes
-    ? Math.max(0, decision.estimated_total_minutes - (doneTasks.length * 15))
+  const latest = await getLatestDecision(userId);
+  const totalMinutes = latest?.decision.estimated_total_minutes
+    ? Math.max(0, latest.decision.estimated_total_minutes - (doneTasks.length * 15))
     : remainingTasks.length * 15;
 
   res.json({ done_tasks: doneTasks, remaining_tasks: remainingTasks, total_minutes: totalMinutes });
 });
 
-api.get('/api/tasks', async (req: Request, res: Response) => {
-  const userId = validateUserId(req.query.user_id);
+api.get('/api/mood', requireAuth, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  const moods = await getMoods(authReq.userId);
+  res.json({ moods, current: getCurrentMood(moods) });
+});
 
-  if (userId) {
-    // Try Supabase first
-    const dbTasks = await getTasks(userId);
-    if (dbTasks.length > 0) {
-      res.json(dbTasks);
-      return;
-    }
-    // Fallback to in-memory session
-    const session = sessions.get(userId);
-    if (session && session.tasks.size > 0) {
-      res.json(Array.from(session.tasks.values()));
-      return;
-    }
+api.post('/api/mood', requireAuth, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  const { label, emoji, level } = req.body;
+
+  if (!label || !emoji || typeof level !== 'number') {
+    res.status(400).json({ error: 'Missing label, emoji, or level' });
+    return;
+  }
+
+  const entry: MoodEntry = { label, emoji, level, timestamp: new Date().toISOString() };
+  const moods = await addMood(authReq.userId, entry);
+  res.json({ moods, current: getCurrentMood(moods) });
+});
+
+api.get('/api/tasks', requireAuth, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  const userId = authReq.userId;
+
+  const dbTasks = await getTasks(userId);
+  if (dbTasks.length > 0) {
+    res.json(dbTasks);
+    return;
   }
 
   res.json(MOCK_TASKS);
@@ -350,6 +386,9 @@ function validateEnv() {
   }
   if (!process.env.SUPABASE_URL || !(process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY)) {
     console.warn('Missing SUPABASE_URL/SUPABASE_KEY — tasks will only persist in memory');
+  }
+  if (!process.env.INTERNAL_API_KEY) {
+    console.warn('Missing INTERNAL_API_KEY — Slack bot commands will fail auth');
   }
 }
 

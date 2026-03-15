@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle2, ArrowLeft, Zap, User, Wind, Coffee } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 // --- Types ---
-interface FocusmodeProps {
-  onBack: () => void;
+export interface FocusTask {
+  id: number;
+  title: string;
+  source: string;
 }
 
-interface SmartTask {
-  id: number;
-  source: string;
-  text: string;
+interface FocusmodeProps {
+  onBack: () => void;
+  tasks: FocusTask[];
 }
 /**
  * @component FocusMode (Simplify.tsx)
@@ -21,7 +23,7 @@ interface SmartTask {
  * 4. TASK SYNC: Replace `smartTasks` placeholder with GET /api/tasks/active.
  * 5. PERSISTENCE: Replace localStorage logic with a DB check to prevent timer reset on refresh.
 */
-export default function Simplify({ onBack }: FocusmodeProps) {
+export default function Simplify({ onBack, tasks }: FocusmodeProps) {
   const FOCUS_TIME: number = 40 * 60; // 40 minutes in seconds
   const focusSplash: string = "https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?auto=format&fit=crop&q=80&w=1600";
 
@@ -47,13 +49,8 @@ export default function Simplify({ onBack }: FocusmodeProps) {
 
   const [taskIndex, setTaskIndex] = useState<number>(0);
   const [currentLevelName, setCurrentLevelName] = useState<string>("Sprout");
-  const [userName] = useState<string>(() => localStorage.getItem('userName') || "User");
-
-  const smartTasks: SmartTask[] = [
-    { id: 1, source: 'Slack', text: "Reply to Design Lead about header padding" },
-    { id: 2, source: 'Meet', text: "Prepare 3 bullet points for 2pm Sync" },
-    { id: 3, source: 'Email', text: "Confirm SAIT diploma application receipt" }
-  ];
+  const { user } = useAuth();
+  const userName = user?.display_name || "User";
 
   // --- TIMER LOGIC ---
   useEffect(() => {
@@ -86,10 +83,8 @@ export default function Simplify({ onBack }: FocusmodeProps) {
   };
 
   const handleComplete = () => {
-    if (taskIndex < smartTasks.length - 1) {
-      setTaskIndex(taskIndex + 1);
-      setGrowth((prev) => Math.min(prev + 0.4, 2.5));
-    }
+    setGrowth((prev) => Math.min(prev + 0.4, 2.5));
+    setTaskIndex((prev) => prev + 1);
   };
 
   return (
@@ -201,33 +196,45 @@ export default function Simplify({ onBack }: FocusmodeProps) {
             </h1>
           </div>
 
-          <AnimatePresence mode="wait">
-            <motion.div 
-              key={taskIndex}
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: -20 }}
-              transition={{ type: "spring", damping: 20, stiffness: 100 }}
-              className="bg-white/80 backdrop-blur-2xl p-14 rounded-[4rem] shadow-[0_32px_64px_-16px_rgba(6,78,59,0.15)] border border-white"
-            >
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-widest mb-10 border border-emerald-100">
-                <Wind size={10} /> {smartTasks[taskIndex].source}
-              </div>
-              
-              <h2 className="text-4xl font-bold text-emerald-950 mb-14 leading-tight tracking-tight">
-                "{smartTasks[taskIndex].text}"
-              </h2>
-
-              <motion.button 
-                whileHover={{ scale: 1.02, backgroundColor: "#065f46" }}
-                whileTap={{ scale: 0.98 }}
-                onClick={handleComplete} 
-                className="w-full bg-emerald-700 text-white py-7 rounded-[2rem] font-black text-2xl flex items-center justify-center gap-4 shadow-2xl shadow-emerald-900/20 transition-all"
+          {tasks.length > 0 && taskIndex < tasks.length ? (
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={taskIndex}
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: -20 }}
+                transition={{ type: "spring", damping: 20, stiffness: 100 }}
+                className="bg-white/80 backdrop-blur-2xl p-14 rounded-[4rem] shadow-[0_32px_64px_-16px_rgba(6,78,59,0.15)] border border-white"
               >
-                <CheckCircle2 size={28} /> DONE
-              </motion.button>
-            </motion.div>
-          </AnimatePresence>
+                <div className="flex items-center justify-between mb-10">
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-widest border border-emerald-100">
+                    <Wind size={10} /> {tasks[taskIndex].source}
+                  </div>
+                  <span className="text-[10px] font-black text-emerald-800/40 uppercase tracking-widest">
+                    {taskIndex + 1} / {tasks.length}
+                  </span>
+                </div>
+
+                <h2 className="text-4xl font-bold text-emerald-950 mb-14 leading-tight tracking-tight">
+                  "{tasks[taskIndex].title}"
+                </h2>
+
+                <motion.button
+                  whileHover={{ scale: 1.02, backgroundColor: "#065f46" }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleComplete}
+                  className="w-full bg-emerald-700 text-white py-7 rounded-[2rem] font-black text-2xl flex items-center justify-center gap-4 shadow-2xl shadow-emerald-900/20 transition-all"
+                >
+                  <CheckCircle2 size={28} /> DONE
+                </motion.button>
+              </motion.div>
+            </AnimatePresence>
+          ) : (
+            <div className="bg-white/80 backdrop-blur-2xl p-14 rounded-[4rem] shadow-[0_32px_64px_-16px_rgba(6,78,59,0.15)] border border-white text-center">
+              <h2 className="text-4xl font-bold text-emerald-950 mb-4 tracking-tight">All clear!</h2>
+              <p className="text-emerald-800/60 text-lg">No tasks in the queue. Enjoy the calm.</p>
+            </div>
+          )}
         </main>
       </div>
     </div>

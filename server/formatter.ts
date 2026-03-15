@@ -16,7 +16,7 @@ export function formatNowMessage(decision: Decision) {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*${truncate(now.title, 60)}*\n${now.reason}\n:clock1: ~${now.estimated_minutes} min`
+        text: `*${truncate(now.title, 60)}*\n${now.reason}\n:clock1: ~${now.estimated_minutes} min  |  :seedling: +${now.reward.toFixed(2)} O₂`
       }
     },
     {
@@ -50,7 +50,7 @@ export function formatNowMessage(decision: Decision) {
     const shown = up_next.slice(0, 3);
     const remaining = up_next.length - shown.length;
     let upNextText = shown
-      .map((t, i) => `${i + 1}. *${truncate(t.title, 60)}* — ~${t.estimated_minutes} min`)
+      .map((t, i) => `${i + 1}. *${truncate(t.title, 60)}* — ~${t.estimated_minutes} min  |  +${t.reward.toFixed(2)} O₂`)
       .join('\n');
     if (remaining > 0) upNextText += `\n...and ${remaining} more`;
     blocks.push({
@@ -102,7 +102,7 @@ export function formatDoneMessage(nextTask: NowTask | null) {
         type: 'section',
         text: {
           type: 'mrkdwn',
-          text: `:white_check_mark: Done! Next up: *${nextTask.title}*\n${nextTask.reason}\n:clock1: ~${nextTask.estimated_minutes} min`
+          text: `:white_check_mark: Done! Next up: *${nextTask.title}*\n${nextTask.reason}\n:clock1: ~${nextTask.estimated_minutes} min  |  :seedling: +${nextTask.reward.toFixed(2)} O₂`
         }
       },
       {

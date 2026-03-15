@@ -1,42 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Zap, ArrowRight, Wind } from 'lucide-react';
-import Simplify from './components/Focusmode'; 
-import Connections from './components/Connection'; 
-import Dashboard from './components/Dashboard'; 
+import { Zap, ArrowRight, Wind, Loader2 } from 'lucide-react';
+import Simplify, { FocusTask } from './components/Focusmode';
+import Connections from './components/Connection';
+import Dashboard from './components/Dashboard';
+import { useAuth } from './context/AuthContext';
 
 type Screen = 'landing' | 'connections' | 'dashboard' | 'simplify';
-/**
- * /**
- * @file App.tsx
- * @description Root Controller & Navigation Hub for Clearnext.
- * Manages the global state machine (Landing -> Connections -> Dashboard -> Focus).
- * * @hackathon_backend_notes:
- * 1. PERSISTENT AUTH: Currently uses localStorage for demo speed. 
- * - Transition to checking a 'session' token via an API call on mount to verify user validity.
- * 2. ROUTING: Navigation is handled via conditional rendering. 
- * - Ensure backend redirect URIs (for Slack/Google) point back to the root domain.**/
-export default function App() {
-  // 1. Initialize state based on storage IMMEDIATELY
-  const [currentScreen, setCurrentScreen] = useState<Screen>(() => {
-    const savedLogin = localStorage.getItem('isLoggedIn');
-    return savedLogin === 'true' ? 'dashboard' : 'landing';
-  });
 
-  // 2. Navigation Handlers
-  const handleLogout = (): void => {
-    localStorage.removeItem('isLoggedIn'); // Specifically remove login flag
+export default function App() {
+  const { user, isLoading, signOut } = useAuth();
+
+  const [currentScreen, setCurrentScreen] = useState<Screen>('landing');
+  const [focusTasks, setFocusTasks] = useState<FocusTask[]>([]);
+
+  useEffect(() => {
+    if (!isLoading && user) {
+      setCurrentScreen('dashboard');
+    }
+  }, [user, isLoading]);
+
+  const handleLogout = async (): Promise<void> => {
+    await signOut();
     setCurrentScreen('landing');
   };
 
-  const handleLoginSuccess = () => {
-    localStorage.setItem('isLoggedIn', 'true');
-    setCurrentScreen('dashboard');
-  };
-
   const handleLandingButtonClick = () => {
-    const savedLogin = localStorage.getItem('isLoggedIn');
-    if (savedLogin === 'true') {
+    if (user) {
       setCurrentScreen('dashboard');
     } else {
       setCurrentScreen('connections');
@@ -45,12 +35,20 @@ export default function App() {
 
   const o2SplashImage: string = "https://images.unsplash.com/photo-1518531933037-91b2f5f229cc?auto=format&fit=crop&q=80&w=1200";
 
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#f1f5f0] flex items-center justify-center">
+        <Loader2 size={48} className="text-emerald-600 animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="relative min-h-screen bg-[#f1f5f0] overflow-hidden font-sans">
-      
+
       {/* Global Background Animation */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <motion.div 
+        <motion.div
           animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.5, 0.3] }}
           transition={{ duration: 10, repeat: Infinity }}
           className="absolute -top-20 -left-20 w-150 h-150 bg-emerald-200/40 blur-[150px] rounded-full"
@@ -58,11 +56,11 @@ export default function App() {
       </div>
 
       <AnimatePresence mode="wait">
-        
+
         {/* 1. PUBLIC LANDING PAGE */}
         {currentScreen === 'landing' && (
-          <motion.div 
-            key="landing" 
+          <motion.div
+            key="landing"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             className="relative z-10"
           >
@@ -86,20 +84,20 @@ export default function App() {
                 <p className="text-emerald-800/60 max-w-sm text-lg font-medium leading-relaxed">
                   The digital world is loud. Clearnext is a breath of fresh air for your workflow—helping you resolve noise and grow calm.
                 </p>
-                <button 
+                <button
                   onClick={handleLandingButtonClick}
                   className="bg-emerald-700 text-white px-12 py-6 rounded-3xl font-black text-xl flex items-center gap-3 hover:bg-emerald-800 transition-all shadow-2xl shadow-emerald-900/20 active:scale-95"
                 >
-                  {localStorage.getItem('isLoggedIn') === 'true' ? 'Open Dashboard' : 'Get Started'} <ArrowRight />
+                  {user ? 'Open Dashboard' : 'Get Started'} <ArrowRight />
                 </button>
               </div>
 
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
                 className="flex-1 relative"
               >
-                <img 
-                  src={o2SplashImage} 
+                <img
+                  src={o2SplashImage}
                   className="relative w-full aspect-4/5 object-cover rounded-[80px] shadow-2xl border-16 border-white/50 backdrop-blur-sm"
                   alt="Nature"
                 />
@@ -110,23 +108,23 @@ export default function App() {
 
         {/* 2. LOGIN/CONNECTIONS FLOW */}
         {currentScreen === 'connections' && (
-          <Connections 
-            onBack={() => setCurrentScreen('landing')} 
-            onLoginSuccess={handleLoginSuccess} 
+          <Connections
+            onBack={() => setCurrentScreen('landing')}
           />
         )}
 
         {/* 3. TASK HUB (Dashboard) */}
         {currentScreen === 'dashboard' && (
-          <Dashboard 
-            onEnterFocus={() => setCurrentScreen('simplify')} 
+          <Dashboard
+            onEnterFocus={() => setCurrentScreen('simplify')}
             onLogout={handleLogout}
+            onTasksLoaded={setFocusTasks}
           />
         )}
 
         {/* 4. DEEP FOCUS (The Plant Mode) */}
         {currentScreen === 'simplify' && (
-          <Simplify onBack={() => setCurrentScreen('dashboard')} />
+          <Simplify onBack={() => setCurrentScreen('dashboard')} tasks={focusTasks} />
         )}
 
       </AnimatePresence>

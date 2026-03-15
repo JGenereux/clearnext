@@ -1,3 +1,10 @@
+export interface AuthenticatedUser {
+  id: string;
+  email: string;
+  display_name: string;
+  slack_user_id: string | null;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -19,6 +26,8 @@ export interface NowTask {
   estimated_minutes: number;
   source: 'slack' | 'meet' | 'calendar';
   score?: number;
+  reward: number;
+  status: 'pending' | 'completed';
 }
 
 export interface ContextBlock {

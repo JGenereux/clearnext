@@ -1,45 +1,25 @@
 import { Router, Request, Response } from 'express';
 import { google } from 'googleapis';
+import { getUserProviderToken } from '../supabase';
+import { requireAuth, AuthenticatedRequest } from '../middleware/auth';
 
 const router = Router();
 
-const oauth2Client = new google.auth.OAuth2(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  `http://localhost:${process.env.PORT || 3000}/meet/auth/callback`
-);
+// --- Per-user auth client factory ---
+async function getAuthClientForUser(userId: string) {
+  const tokenData = await getUserProviderToken(userId, 'google');
+  if (!tokenData) return null;
 
-const SCOPES = [
-  'https://www.googleapis.com/auth/meetings.space.readonly',
-  'https://www.googleapis.com/auth/calendar.readonly',
-];
-
-/**
- * This route must be called in the browser to authenticate the user.
- */
-router.get('/auth/google', (_req: Request, res: Response) => {
-  const url = oauth2Client.generateAuthUrl({
-    access_type: 'offline',
-    scope: SCOPES,
+  const oauth2Client = new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET
+  );
+  oauth2Client.setCredentials({
+    access_token: tokenData.access_token,
+    refresh_token: tokenData.refresh_token,
   });
-  res.redirect(url);
-});
-
-router.get('/auth/callback', async (req: Request, res: Response) => {
-  const code = req.query.code as string;
-  if (!code) {
-    res.status(400).json({ error: 'Missing authorization code' });
-    return;
-  }
-
-  try {
-    const { tokens } = await oauth2Client.getToken(code);
-    oauth2Client.setCredentials(tokens);
-    res.json({ message: 'Authenticated successfully. You can now fetch /meet/conferences.' });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to authenticate', details: String(err) });
-  }
-});
+  return oauth2Client;
+}
 
 // --- Types ---
 
@@ -54,15 +34,6 @@ interface TranscriptEntry {
 interface Transcript {
   transcriptId: string;
   entries: TranscriptEntry[];
-}
-
-interface ConferenceRecord {
-  name: string;
-  startTime: string | null;
-  endTime: string | null;
-  expireTime: string | null;
-  space: string | null;
-  transcripts: Transcript[];
 }
 
 // --- Helpers ---
@@ -147,14 +118,17 @@ async function getTranscriptsForRecord(
   return transcripts;
 }
 
-router.get('/conferences', async (_req: Request, res: Response) => {
-  if (!oauth2Client.credentials?.access_token) {
-    res.status(401).json({ error: 'Not authenticated. Visit /meet/auth/google first.' });
+router.get('/conferences', requireAuth, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  const authClient = await getAuthClientForUser(authReq.userId);
+
+  if (!authClient) {
+    res.status(401).json({ error: 'No Google credentials found. Please sign in with Google.' });
     return;
   }
 
   try {
-    const meet = google.meet({ version: 'v2', auth: oauth2Client });
+    const meet = google.meet({ version: 'v2', auth: authClient });
 
     const recordsRes = await meet.conferenceRecords.list();
     const records = recordsRes.data.conferenceRecords || [];
@@ -174,16 +148,19 @@ router.get('/conferences', async (_req: Request, res: Response) => {
 });
 
 // Get transcripts for a specific conference by meeting code (e.g. qqn-xiih-xcs)
-router.get('/conferences/:meetingCode/transcripts', async (req: Request, res: Response) => {
-  if (!oauth2Client.credentials?.access_token) {
-    res.status(401).json({ error: 'Not authenticated. Visit /meet/auth/google first.' });
+router.get('/conferences/:meetingCode/transcripts', requireAuth, async (req: Request, res: Response) => {
+  const authReq = req as AuthenticatedRequest;
+  const authClient = await getAuthClientForUser(authReq.userId);
+
+  if (!authClient) {
+    res.status(401).json({ error: 'No Google credentials found. Please sign in with Google.' });
     return;
   }
 
   const { meetingCode } = req.params;
 
   try {
-    const meet = google.meet({ version: 'v2', auth: oauth2Client });
+    const meet = google.meet({ version: 'v2', auth: authClient });
 
     const recordsRes = await meet.conferenceRecords.list({
       filter: `space.meeting_code="${meetingCode}"`,
@@ -209,14 +186,15 @@ router.get('/conferences/:meetingCode/transcripts', async (req: Request, res: Re
   }
 });
 
-export async function getGoogleMeetContext(userName: string = "Jace", _userId: string): Promise<string> {
-  if (!oauth2Client.credentials?.access_token) return '';
+export async function getGoogleMeetContext(userName: string = "Jace", userId: string): Promise<string> {
+  const authClient = await getAuthClientForUser(userId);
+  if (!authClient) return '';
 
   const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
   const nameLower = userName.toLowerCase().trim();
 
   try {
-    const meet = google.meet({ version: 'v2', auth: oauth2Client });
+    const meet = google.meet({ version: 'v2', auth: authClient });
     const recordsRes = await meet.conferenceRecords.list();
     const records = recordsRes.data.conferenceRecords || [];
 
@@ -241,7 +219,6 @@ export async function getGoogleMeetContext(userName: string = "Jace", _userId: s
 
         const entries = await getTranscriptEntries(meet, t.name);
         if (entries.length === 0) continue;
-        console.log("Entries: ", entries)
 
         const relevant = entries.filter(e => {
           const pName = e.participant?.toLowerCase().trim() || '';
@@ -266,11 +243,12 @@ export async function getGoogleMeetContext(userName: string = "Jace", _userId: s
   return '';
 }
 
-export async function getGoogleCalendarContext(_userId: string): Promise<string> {
-  if (!oauth2Client.credentials?.access_token) return '';
+export async function getGoogleCalendarContext(userId: string): Promise<string> {
+  const authClient = await getAuthClientForUser(userId);
+  if (!authClient) return '';
 
   try {
-    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+    const calendar = google.calendar({ version: 'v3', auth: authClient });
 
     const now = new Date();
     const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
