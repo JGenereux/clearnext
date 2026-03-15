@@ -39,6 +39,7 @@ export default function Dashboard({ onEnterFocus, onLogout, onTasksLoaded }: Das
   const [kodaMessage, setKodaMessage] = useState<string>("Let's get focused! 🌿");
   
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [loadingQueue, setLoadingQueue] = useState<boolean>(true);
 
   const [petStats, setPetStats] = useState({ hunger: 70, happiness: 85, energy: 100 });
   const [petAction, setPetAction] = useState<string | null>(null);
@@ -61,18 +62,8 @@ export default function Dashboard({ onEnterFocus, onLogout, onTasksLoaded }: Das
     "Ready for a deep work session?"
   ];
 
-  // --- Effects ---
-  useEffect(() => {
-    apiFetch('/api/mood')
-      .then(res => res.json())
-      .then(data => {
-        if (data.moods) setMoodHistory(data.moods);
-        if (data.current) setSelectedMood(data.current.label);
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
+  const fetchQueue = () => {
+    setLoadingQueue(true);
     apiFetch('/api/now', { method: 'POST' })
       .then(res => res.json())
       .then(data => {
@@ -89,7 +80,22 @@ export default function Dashboard({ onEnterFocus, onLogout, onTasksLoaded }: Das
         setTasks(mapped);
         onTasksLoaded(mapped.map(t => ({ id: t.id, title: t.title, source: t.source })));
       })
+      .catch(() => {})
+      .finally(() => setLoadingQueue(false));
+  };
+
+  useEffect(() => {
+    apiFetch('/api/mood')
+      .then(res => res.json())
+      .then(data => {
+        if (data.moods) setMoodHistory(data.moods);
+        if (data.current) setSelectedMood(data.current.label);
+      })
       .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchQueue();
   }, []);
 
   useEffect(() => {
@@ -139,6 +145,7 @@ export default function Dashboard({ onEnterFocus, onLogout, onTasksLoaded }: Das
       .then(res => res.json())
       .then(data => {
         if (data.moods) setMoodHistory(data.moods);
+        fetchQueue();
       })
       .catch(() => {});
     setIsMoodModalOpen(false);
@@ -247,22 +254,37 @@ export default function Dashboard({ onEnterFocus, onLogout, onTasksLoaded }: Das
             <div className="space-y-6">
               <h2 className="text-xs font-black text-emerald-900/40 uppercase tracking-[0.3em] px-2">Queue</h2>
               <div className="grid gap-4">
-                {tasks.map((task) => (
-                  <motion.div key={task.id} whileHover={{ x: 10, backgroundColor: "rgba(255, 255, 255, 1)" }} className="bg-white/70 backdrop-blur-md p-6 rounded-[2.5rem] border border-white flex items-center justify-between transition-all" >
-                    <div className="flex items-center gap-5">
-                      <button onClick={() => toggleTask(task.id)} className={`w-14 h-14 rounded-3xl flex items-center justify-center transition-all ${task.status === 'completed' ? 'bg-emerald-50 text-emerald-500' : 'bg-white text-emerald-900/20 border border-emerald-50 hover:border-emerald-200'}`} >
-                        {task.status === 'completed' ? <CheckCircle size={24} /> : <div className="w-6 h-6 border-2 border-current rounded-full" />}
-                      </button>
-                      <div>
-                        <h3 className={`text-lg font-bold ${task.status === 'completed' ? 'text-emerald-900/30 line-through' : 'text-emerald-950'}`}>{task.title}</h3>
+                {loadingQueue ? (
+                  [0, 1, 2].map(i => (
+                    <div key={i} className="bg-white/70 backdrop-blur-md p-6 rounded-[2.5rem] border border-white flex items-center gap-5 animate-pulse">
+                      <div className="w-14 h-14 rounded-3xl bg-emerald-100/60 shrink-0" />
+                      <div className="flex-1 space-y-3">
+                        <div className="h-4 bg-emerald-100/60 rounded-2xl" style={{ width: `${65 - i * 12}%` }} />
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black text-emerald-800/40 uppercase tracking-widest">{task.source}</span>
-                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 rounded-md">+{task.reward.toFixed(2)} O₂</span>
+                          <div className="h-2.5 w-12 bg-emerald-100/40 rounded-lg" />
+                          <div className="h-2.5 w-16 bg-emerald-50 rounded-md" />
                         </div>
                       </div>
                     </div>
-                  </motion.div>
-                ))}
+                  ))
+                ) : (
+                  tasks.map((task) => (
+                    <motion.div key={task.id} whileHover={{ x: 10, backgroundColor: "rgba(255, 255, 255, 1)" }} className="bg-white/70 backdrop-blur-md p-6 rounded-[2.5rem] border border-white flex items-center justify-between transition-all" >
+                      <div className="flex items-center gap-5">
+                        <button onClick={() => toggleTask(task.id)} className={`w-14 h-14 rounded-3xl flex items-center justify-center transition-all ${task.status === 'completed' ? 'bg-emerald-50 text-emerald-500' : 'bg-white text-emerald-900/20 border border-emerald-50 hover:border-emerald-200'}`} >
+                          {task.status === 'completed' ? <CheckCircle size={24} /> : <div className="w-6 h-6 border-2 border-current rounded-full" />}
+                        </button>
+                        <div>
+                          <h3 className={`text-lg font-bold ${task.status === 'completed' ? 'text-emerald-900/30 line-through' : 'text-emerald-950'}`}>{task.title}</h3>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-black text-emerald-800/40 uppercase tracking-widest">{task.source}</span>
+                            <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 rounded-md">+{task.reward.toFixed(2)} O₂</span>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))
+                )}
               </div>
             </div>
 

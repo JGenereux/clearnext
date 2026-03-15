@@ -11,12 +11,35 @@ type Screen = 'landing' | 'connections' | 'dashboard' | 'simplify';
 export default function App() {
   const { user, isLoading, signOut } = useAuth();
 
-  const [currentScreen, setCurrentScreen] = useState<Screen>('landing');
-  const [focusTasks, setFocusTasks] = useState<FocusTask[]>([]);
+  const [currentScreen, setCurrentScreen] = useState<Screen>(() => {
+    const saved = localStorage.getItem('clearnext-screen');
+    return (saved as Screen) || 'landing';
+  });
+  const [focusTasks, setFocusTasks] = useState<FocusTask[]>(() => {
+    try {
+      const saved = localStorage.getItem('clearnext-focus-tasks');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  useEffect(() => {
+    localStorage.setItem('clearnext-screen', currentScreen);
+  }, [currentScreen]);
+
+  useEffect(() => {
+    localStorage.setItem('clearnext-focus-tasks', JSON.stringify(focusTasks));
+  }, [focusTasks]);
 
   useEffect(() => {
     if (!isLoading && user) {
-      setCurrentScreen('dashboard');
+      if (currentScreen === 'landing' || currentScreen === 'connections') {
+        setCurrentScreen('dashboard');
+      }
+    }
+    if (!isLoading && !user) {
+      setCurrentScreen('landing');
+      localStorage.removeItem('clearnext-screen');
+      localStorage.removeItem('clearnext-focus-tasks');
     }
   }, [user, isLoading]);
 

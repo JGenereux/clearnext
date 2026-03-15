@@ -40,7 +40,10 @@ export default function Simplify({ onBack, tasks }: FocusmodeProps) {
     return saved ? Math.min(parseFloat(saved), 2.5) : 1; 
   });
 
-  const [taskIndex, setTaskIndex] = useState<number>(0);
+  const [taskIndex, setTaskIndex] = useState<number>(() => {
+    const saved = localStorage.getItem('focus-task-index');
+    return saved ? parseInt(saved) : 0;
+  });
   const [currentLevelName, setCurrentLevelName] = useState<string>("Sprout");
   const { user } = useAuth();
   const userName = user?.display_name || "User";
@@ -69,6 +72,10 @@ export default function Simplify({ onBack, tasks }: FocusmodeProps) {
     setCurrentLevelName(levels[Math.floor(growth / 0.8)] || "Giant");
   }, [growth]);
 
+  useEffect(() => {
+    localStorage.setItem('focus-task-index', taskIndex.toString());
+  }, [taskIndex]);
+
   const formatTime = (seconds: number): string => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -78,6 +85,13 @@ export default function Simplify({ onBack, tasks }: FocusmodeProps) {
   const handleComplete = () => {
     setGrowth((prev) => Math.min(prev + 0.4, 2.5));
     setTaskIndex((prev) => prev + 1);
+  };
+
+  const handleExit = () => {
+    localStorage.removeItem('focus-timer-left');
+    localStorage.removeItem('focus-timer-timestamp');
+    localStorage.removeItem('focus-task-index');
+    onBack();
   };
 
   return (
@@ -92,7 +106,7 @@ export default function Simplify({ onBack, tasks }: FocusmodeProps) {
               <h2 className="text-3xl font-black text-emerald-950 tracking-tighter mb-2">Stop Synthesis?</h2>
               <p className="text-emerald-800/60 font-medium text-sm mb-10">Koda's garden needs your focus to produce O₂. If you leave now, the plant's growth will pause.</p>
               <div className="flex flex-col gap-3">
-                <button onClick={onBack} className="w-full py-5 bg-red-50 text-red-600 rounded-3xl font-black text-sm uppercase tracking-widest hover:bg-red-100 transition-colors">Yes, Exit Focus</button>
+                <button onClick={handleExit} className="w-full py-5 bg-red-50 text-red-600 rounded-3xl font-black text-sm uppercase tracking-widest hover:bg-red-100 transition-colors">Yes, Exit Focus</button>
                 <button onClick={() => setIsExitModalOpen(false)} className="w-full py-5 bg-emerald-950 text-white rounded-3xl font-black text-sm uppercase tracking-widest hover:bg-black transition-colors">Continue Focusing</button>
               </div>
             </motion.div>

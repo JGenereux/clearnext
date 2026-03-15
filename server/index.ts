@@ -9,6 +9,20 @@ import { Task, Decision } from './types';
 import { getSlackContext } from './slack-reader';
 import meetRouter, { getGoogleCalendarContext, getGoogleMeetContext } from './routes/meet';
 import { addTask, getTasks, saveTasks, markTaskDone, saveDecision, getLatestDecision, storeUserProviderToken, getUserProviderToken, getMoods, addMood, getCurrentMood, MoodEntry } from './supabase';
+
+const LOW_ENERGY_THRESHOLD = 50;
+
+function isLowEnergy(moods: MoodEntry[]): boolean {
+  const current = getCurrentMood(moods);
+  return !!current && current.level <= LOW_ENERGY_THRESHOLD;
+}
+
+function reverseDecisionOrder(decision: Decision): Decision {
+  if (decision.up_next.length === 0) return decision;
+  const reversed = [...decision.up_next].reverse();
+  const [newNow, ...rest] = [decision.now, ...reversed].reverse();
+  return { ...decision, now: newNow, up_next: rest };
+}
 import { requireAuth, AuthenticatedRequest } from './middleware/auth';
 
 const PORT = process.env.PORT || 3000;
@@ -180,6 +194,9 @@ api.post('/api/now', requireAuth, async (req: Request, res: Response) => {
   }
 
   try {
+    const moods = await getMoods(userId);
+    const lowEnergy = isLowEnergy(moods);
+
     const latest = await getLatestDecision(userId);
     if (latest) {
       const age = Date.now() - new Date(latest.created_at).getTime();
@@ -203,22 +220,23 @@ api.post('/api/now', requireAuth, async (req: Request, res: Response) => {
           adjustedDecision = { ...decision, now: decision.now, up_next: [] };
         }
 
+        if (lowEnergy) adjustedDecision = reverseDecisionOrder(adjustedDecision);
+
         res.json({ ...adjustedDecision, cached: true, tasks: pendingTasks, fetched_at: latest.created_at });
         return;
       }
     }
 
-    // Fresh fetch — gather inputs and extract tasks
     const inputs = await gatherInputs(userId, userName, authReq.slackUserId);
     const newTasks = await extractTasks(inputs.slack, inputs.transcript, inputs.calendar, userName);
 
     if (newTasks.length === 0) {
-      // No new tasks from AI — check if we have existing tasks in DB
       const existingTasks = await getTasks(userId);
       const pendingExisting = existingTasks.filter(t => !t.done);
       if (pendingExisting.length > 0) {
         const decision = await makeDecision(pendingExisting, userName);
-        const finalDecision = decision || buildFallbackDecision(pendingExisting);
+        let finalDecision = decision || buildFallbackDecision(pendingExisting);
+        if (lowEnergy) finalDecision = reverseDecisionOrder(finalDecision);
         await saveDecision(userId, finalDecision);
         res.json({ ...finalDecision, hints: inputs.hints, tasks: pendingExisting, fetched_at: new Date().toISOString() });
         return;
@@ -227,30 +245,30 @@ api.post('/api/now', requireAuth, async (req: Request, res: Response) => {
       return;
     }
 
-    // Merge new tasks with existing DB tasks
     await saveTasks(userId, newTasks);
     const pendingTasks = newTasks;
 
     if (pendingTasks.length === 0) {
-      // All extracted tasks were already completed
       const allDone = buildFallbackDecision([]);
       res.json({ ...allDone, hints: inputs.hints, tasks: [], fetched_at: new Date().toISOString() });
       return;
     }
 
     const decision = await makeDecision(pendingTasks, userName);
-    const finalDecision = decision || buildFallbackDecision(pendingTasks);
+    let finalDecision = decision || buildFallbackDecision(pendingTasks);
+    if (lowEnergy) finalDecision = reverseDecisionOrder(finalDecision);
 
     await saveDecision(userId, finalDecision);
     res.json({ ...finalDecision, hints: inputs.hints, tasks: pendingTasks, fetched_at: new Date().toISOString() });
   } catch (err) {
     console.error('/api/now error:', (err as Error).message);
-    // Try to return existing tasks from DB rather than mock data
     try {
       const existingTasks = await getTasks(userId);
       const pending = existingTasks.filter(t => !t.done);
       if (pending.length > 0) {
-        const fallback = buildFallbackDecision(pending);
+        const moods = await getMoods(userId);
+        let fallback: Decision = buildFallbackDecision(pending);
+        if (isLowEnergy(moods)) fallback = reverseDecisionOrder(fallback);
         res.json({ ...fallback, tasks: pending, fetched_at: new Date().toISOString() });
         return;
       }
