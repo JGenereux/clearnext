@@ -1,11 +1,14 @@
 import 'dotenv/config';
 import express, { Request, Response } from 'express';
+import cors from 'cors';
 import { App } from '@slack/bolt';
 import { registerCommands } from './commands';
 import { extractTasks } from './extract';
 import { makeDecision } from './decide';
 import { Task, Decision } from './types';
 import { getSlackContext } from './slack-reader';
+import meetRouter, { getGoogleCalendarContext, getGoogleMeetContext } from './routes/meet';
+import { saveTasks, getTasks, markTaskDone, saveDecision, getLatestDecision } from './supabase';
 
 const PORT = process.env.PORT || 3000;
 
@@ -60,10 +63,9 @@ function validateUserId(id: unknown): string | null {
 
 async function gatherInputs(userId: string) {
   const slack = await getSlackContext(userId);
-  // TODO: Google Meet transcript + Calendar (Person C)
-  const transcript = '';
-  const calendar = '';
-  return { slack, transcript, calendar };
+  const transcript = await getGoogleMeetContext('Jace', userId);
+  const calendar = await getGoogleCalendarContext(userId);
+  return { slack, transcript, calendar};
 }
 
 // --- Mock data fallbacks ---
@@ -72,11 +74,12 @@ const MOCK_DECISION: Decision = {
     task_id: 't1',
     title: 'Fix Shopify webhook',
     reason: 'Eric mentioned this 3x, blocking deploy',
-    estimated_minutes: 9
+    estimated_minutes: 9,
+    source: 'slack'
   },
   up_next: [
-    { task_id: 't2', title: 'Review PR #42', reason: 'Sarah requested review this morning', estimated_minutes: 15 },
-    { task_id: 't3', title: 'Update API docs', reason: 'Needed before client demo at 4pm', estimated_minutes: 20 }
+    { task_id: 't2', title: 'Review PR #42', reason: 'Sarah requested review this morning', estimated_minutes: 15, source: 'slack' },
+    { task_id: 't3', title: 'Update API docs', reason: 'Needed before client demo at 4pm', estimated_minutes: 20, source: 'meet' }
   ],
   context_blocks: [
     { name: 'Shopify Integration', task_ids: ['t1', 't3'], do_first: true },
@@ -94,10 +97,81 @@ const MOCK_TASKS: Task[] = [
 
 // --- Express API server ---
 const api = express();
+api.use(cors({ origin: ['http://localhost:5173', 'http://localhost:3001'], credentials: true }));
 api.use(express.json());
 
 api.get('/', (_req: Request, res: Response) => {
   res.json({ message: 'ClearNext server is running' });
+});
+
+api.use('/meet', meetRouter);
+
+// --- Slack OAuth for frontend login ---
+const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID || '';
+const SLACK_CLIENT_SECRET = process.env.SLACK_CLIENT_SECRET || '';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+api.get('/auth/slack', (_req: Request, res: Response) => {
+  const scopes = 'identity.basic,identity.avatar';
+  const redirectUri = `${_req.protocol}://${_req.get('host')}/auth/slack/callback`;
+  const url = `https://slack.com/oauth/v2/authorize?user_scope=${scopes}&client_id=${SLACK_CLIENT_ID}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+  res.redirect(url);
+});
+
+api.get('/auth/slack/callback', async (req: Request, res: Response) => {
+  const { code } = req.query;
+  if (!code || typeof code !== 'string') {
+    res.status(400).json({ error: 'Missing code' });
+    return;
+  }
+
+  try {
+    const redirectUri = `${req.protocol}://${req.get('host')}/auth/slack/callback`;
+    const response = await fetch('https://slack.com/api/oauth.v2.access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: SLACK_CLIENT_ID,
+        client_secret: SLACK_CLIENT_SECRET,
+        code,
+        redirect_uri: redirectUri
+      })
+    });
+
+    const data = await response.json() as any;
+    if (!data.ok) {
+      res.redirect(`${FRONTEND_URL}?error=slack_auth_failed`);
+      return;
+    }
+
+    const userId = data.authed_user?.id;
+    const userName = data.authed_user?.access_token ? undefined : undefined;
+
+    // Get user info for display name
+    let displayName = 'User';
+    let avatar = '';
+    if (data.authed_user?.access_token) {
+      const identityRes = await fetch('https://slack.com/api/users.identity', {
+        headers: { 'Authorization': `Bearer ${data.authed_user.access_token}` }
+      });
+      const identity = await identityRes.json() as any;
+      if (identity.ok) {
+        displayName = identity.user?.name || 'User';
+        avatar = identity.user?.image_48 || '';
+      }
+    }
+
+    // Redirect to frontend with user info
+    const params = new URLSearchParams({
+      user_id: userId,
+      user_name: displayName,
+      avatar
+    });
+    res.redirect(`${FRONTEND_URL}?${params.toString()}`);
+  } catch (err) {
+    console.error('Slack OAuth error:', (err as Error).message);
+    res.redirect(`${FRONTEND_URL}?error=slack_auth_failed`);
+  }
 });
 
 api.post('/api/now', async (req: Request, res: Response) => {
@@ -128,6 +202,9 @@ api.post('/api/now', async (req: Request, res: Response) => {
     tasks.forEach(t => session.tasks.set(t.id, t));
     session.lastUpdated = Date.now();
 
+    // Save tasks to Supabase
+    await saveTasks(userId, tasks);
+
     const decision = await makeDecision(tasks, userName);
     if (!decision) {
       res.json({ ...MOCK_DECISION, is_mock: true });
@@ -135,6 +212,7 @@ api.post('/api/now', async (req: Request, res: Response) => {
     }
 
     session.decision = decision;
+    await saveDecision(userId, decision);
     res.json(decision);
   } catch (err) {
     console.error('/api/now error:', (err as Error).message);
@@ -161,6 +239,7 @@ api.post('/api/done', async (req: Request, res: Response) => {
   if (session) {
     const task = session.tasks.get(task_id);
     if (task) task.done = true;
+    await markTaskDone(task_id);
 
     if (session.decision && session.decision.up_next.length > 0) {
       const nextTask = session.decision.up_next.shift()!;
@@ -173,10 +252,82 @@ api.post('/api/done', async (req: Request, res: Response) => {
   res.json({ next_task: null });
 });
 
+api.post('/api/later', async (req: Request, res: Response) => {
+  const userId = validateUserId(req.body.user_id);
+  const userName = typeof req.body.user_name === 'string' ? req.body.user_name.slice(0, 100) : 'User';
+  const text = typeof req.body.text === 'string' ? req.body.text.slice(0, 500) : '';
+
+  if (!userId || !text) {
+    res.status(400).json({ error: 'Invalid user_id or empty text' });
+    return;
+  }
+
+  const session = getSession(userId);
+  const taskId = `t_${Date.now()}_manual`;
+  const task: Task = {
+    id: taskId,
+    title: text.split(' ').slice(0, 8).join(' '),
+    description: text,
+    source: 'slack',
+    assigned_to_user: true,
+    urgency_signals: [],
+    mentioned_by: userName,
+    mentioned_count: 1,
+    deadline_hint: null,
+    raw_quote: text,
+    done: false
+  };
+
+  session.tasks.set(taskId, task);
+  session.lastUpdated = Date.now();
+  await saveTasks(userId, [task]);
+
+  res.json({ task, total_tasks: session.tasks.size });
+});
+
+api.get('/api/recap', async (req: Request, res: Response) => {
+  const userId = validateUserId(req.query.user_id);
+
+  if (!userId) {
+    res.status(400).json({ error: 'Invalid user_id' });
+    return;
+  }
+
+  // Try Supabase first
+  let allTasks = await getTasks(userId);
+
+  // Fallback to in-memory
+  if (allTasks.length === 0) {
+    const session = sessions.get(userId);
+    if (!session || session.tasks.size === 0) {
+      res.json({ done_tasks: [], remaining_tasks: [], total_minutes: 0 });
+      return;
+    }
+    allTasks = Array.from(session.tasks.values());
+  }
+
+  const doneTasks = allTasks.filter(t => t.done);
+  const remainingTasks = allTasks.filter(t => !t.done);
+
+  const decision = await getLatestDecision(userId);
+  const totalMinutes = decision?.estimated_total_minutes
+    ? Math.max(0, decision.estimated_total_minutes - (doneTasks.length * 15))
+    : remainingTasks.length * 15;
+
+  res.json({ done_tasks: doneTasks, remaining_tasks: remainingTasks, total_minutes: totalMinutes });
+});
+
 api.get('/api/tasks', async (req: Request, res: Response) => {
   const userId = validateUserId(req.query.user_id);
 
   if (userId) {
+    // Try Supabase first
+    const dbTasks = await getTasks(userId);
+    if (dbTasks.length > 0) {
+      res.json(dbTasks);
+      return;
+    }
+    // Fallback to in-memory session
     const session = sessions.get(userId);
     if (session && session.tasks.size > 0) {
       res.json(Array.from(session.tasks.values()));
@@ -194,8 +345,11 @@ function validateEnv() {
   if (missing.length > 0) {
     console.warn(`Missing env vars: ${missing.join(', ')} — Slack bot will not start`);
   }
-  if (!process.env.GEMINI_API_KEY) {
-    console.warn('Missing GEMINI_API_KEY — AI pipeline will use mock data');
+  if (!process.env.GROQ_API_KEY) {
+    console.warn('Missing GROQ_API_KEY — AI pipeline will use mock data');
+  }
+  if (!process.env.SUPABASE_URL || !(process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY)) {
+    console.warn('Missing SUPABASE_URL/SUPABASE_KEY — tasks will only persist in memory');
   }
 }
 

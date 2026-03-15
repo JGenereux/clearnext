@@ -15,6 +15,7 @@ For each task, extract:
 - raw_quote: the exact quote from the source
 
 Rules:
+- Only extract tasks that are assigned to, requested of, or expected of the user. If someone else says "I need to do X", that is THEIR task, not the user's — do NOT include it. Set assigned_to_user: false for any task that belongs to someone else, and exclude those tasks from the output entirely.
 - Only extract actionable tasks, not FYI messages or social chat
 - Deduplicate tasks mentioned across multiple sources (increase mentioned_count)
 - If a task appears in both Slack and a meeting, prefer the more detailed version
@@ -31,7 +32,7 @@ Scoring heuristic (use this to pick the #1 task):
 - +2 if mentioned_count >= 2
 - +1 if there's a deadline_hint
 
-Pick the highest-scoring task as "now". Put the next 3 as "up_next".
+Pick the highest-scoring task as "now". Put the next 3 as "up_next". Include each task's "source" ("slack", "meet", or "calendar") from the input tasks.
 
 Group tasks by domain/topic into context_blocks. Mark the block containing the "now" task as do_first: true.
 
@@ -41,10 +42,11 @@ Output format (return ONLY this JSON, no markdown, no preamble):
     "task_id": "t1",
     "title": "task title",
     "reason": "Short explanation of why this is #1 (mention who asked, urgency, etc.)",
-    "estimated_minutes": 15
+    "estimated_minutes": 15,
+    "source": "slack"
   },
   "up_next": [
-    { "task_id": "t2", "title": "...", "reason": "...", "estimated_minutes": 10 }
+    { "task_id": "t2", "title": "...", "reason": "...", "estimated_minutes": 10, "source": "meet" }
   ],
   "context_blocks": [
     { "name": "Block Name", "task_ids": ["t1", "t3"], "do_first": true }

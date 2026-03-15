@@ -1,4 +1,4 @@
-import { getModel } from './gemini';
+import { callAI } from './gemini';
 import { DECISION_SYSTEM_PROMPT } from './prompts';
 import { Task, Decision } from './types';
 
@@ -6,13 +6,10 @@ export async function makeDecision(
   tasks: Task[],
   userName: string
 ): Promise<Decision | null> {
-  const model = getModel();
-  if (!model) return null;
-
   const activeTasks = tasks.filter(t => !t.done);
   if (activeTasks.length === 0) {
     return {
-      now: { task_id: '', title: 'All done!', reason: 'No pending tasks', estimated_minutes: 0 },
+      now: { task_id: '', title: 'All done!', reason: 'No pending tasks', estimated_minutes: 0, source: 'slack' },
       up_next: [],
       context_blocks: [],
       total_tasks: 0,
@@ -24,32 +21,37 @@ export async function makeDecision(
   const userPrompt = `User: ${sanitizedName}\n\nTasks:\n${JSON.stringify(activeTasks, null, 2)}`;
 
   try {
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-      systemInstruction: DECISION_SYSTEM_PROMPT,
-      generationConfig: { responseMimeType: 'application/json' }
-    });
+    const text = await callAI(DECISION_SYSTEM_PROMPT, userPrompt);
+    if (!text) return null;
 
-    const text = result.response.text();
     let decision: Decision;
     try {
       decision = JSON.parse(text);
-    } catch (parseErr) {
-      console.error('makeDecision JSON parse error. Raw response:', text.slice(0, 500));
+    } catch {
+      console.error('makeDecision JSON parse error. Raw:', text.slice(0, 500));
       return null;
     }
 
-    // Validate required fields
     if (!decision || !decision.now || !decision.now.task_id) {
       console.error('Invalid decision structure:', JSON.stringify(decision).slice(0, 300));
       return null;
     }
 
-    // Ensure arrays exist
-    decision.up_next = Array.isArray(decision.up_next) ? decision.up_next : [];
+    decision.up_next = (Array.isArray(decision.up_next) ? decision.up_next : [])
+      .filter(t => t && t.task_id && t.title);
     decision.context_blocks = Array.isArray(decision.context_blocks) ? decision.context_blocks : [];
     decision.total_tasks = typeof decision.total_tasks === 'number' ? decision.total_tasks : activeTasks.length;
     decision.estimated_total_minutes = typeof decision.estimated_total_minutes === 'number' ? decision.estimated_total_minutes : 0;
+
+    // Backfill source from input tasks if the AI omitted it
+    const taskMap = new Map(activeTasks.map(t => [t.id, t]));
+    const fillSource = (nt: any) => {
+      if (!nt.source) {
+        nt.source = taskMap.get(nt.task_id)?.source ?? 'slack';
+      }
+    };
+    fillSource(decision.now);
+    decision.up_next.forEach(fillSource);
 
     return decision;
   } catch (err) {

@@ -17,6 +17,7 @@ export interface NowTask {
   title: string;
   reason: string;
   estimated_minutes: number;
+  source: 'slack' | 'meet' | 'calendar';
   score?: number;
 }
 

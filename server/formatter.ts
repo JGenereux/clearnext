@@ -127,6 +127,60 @@ export function formatDoneMessage(nextTask: NowTask | null) {
   };
 }
 
+export function formatRecapMessage(doneTasks: Task[], remainingTasks: Task[], totalMinutes: number) {
+  const blocks: any[] = [
+    {
+      type: 'header',
+      text: { type: 'plain_text', text: 'Your Daily Recap', emoji: true }
+    }
+  ];
+
+  if (doneTasks.length === 0) {
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: 'No tasks completed yet today. Run `/now` to get started!' }
+    });
+  } else {
+    const doneLines = doneTasks.map((t, i) => {
+      const sourceIcon: Record<string, string> = { slack: ':speech_balloon:', meet: ':video_camera:', calendar: ':calendar:' };
+      const icon = sourceIcon[t.source] || ':pushpin:';
+      return `${icon} ~${truncate(t.title, 60)}~`;
+    });
+
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `:white_check_mark: *Completed (${doneTasks.length})*\n${doneLines.join('\n')}` }
+    });
+  }
+
+  if (remainingTasks.length > 0) {
+    const remainLines = remainingTasks.slice(0, 5).map(t => {
+      const sourceIcon: Record<string, string> = { slack: ':speech_balloon:', meet: ':video_camera:', calendar: ':calendar:' };
+      const icon = sourceIcon[t.source] || ':pushpin:';
+      const urgent = t.urgency_signals.length > 0 ? ' :rotating_light:' : '';
+      return `${icon} ${truncate(t.title, 60)}${urgent}`;
+    });
+    const extra = remainingTasks.length > 5 ? `\n...and ${remainingTasks.length - 5} more` : '';
+
+    blocks.push(
+      { type: 'divider' },
+      {
+        type: 'section',
+        text: { type: 'mrkdwn', text: `:clipboard: *Remaining (${remainingTasks.length})*\n${remainLines.join('\n')}${extra}` }
+      }
+    );
+  }
+
+  blocks.push({
+    type: 'context',
+    elements: [
+      { type: 'mrkdwn', text: `:bar_chart: ${doneTasks.length} done | ${remainingTasks.length} remaining | ~${totalMinutes} min left` }
+    ]
+  });
+
+  return { blocks };
+}
+
 export function formatAllTasksMessage(tasks: Task[]) {
   if (tasks.length === 0) {
     return {
