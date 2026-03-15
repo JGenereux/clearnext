@@ -46,7 +46,6 @@ export default function App() {
   return (
     <div className="relative min-h-screen bg-[#f1f5f0] overflow-hidden font-sans">
 
-      {/* Global Background Animation */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <motion.div
           animate={{ scale: [1, 1.1, 1], opacity: [0.3, 0.5, 0.3] }}
@@ -57,7 +56,6 @@ export default function App() {
 
       <AnimatePresence mode="wait">
 
-        {/* 1. PUBLIC LANDING PAGE */}
         {currentScreen === 'landing' && (
           <motion.div
             key="landing"
@@ -106,14 +104,12 @@ export default function App() {
           </motion.div>
         )}
 
-        {/* 2. LOGIN/CONNECTIONS FLOW */}
         {currentScreen === 'connections' && (
           <Connections
             onBack={() => setCurrentScreen('landing')}
           />
         )}
 
-        {/* 3. TASK HUB (Dashboard) */}
         {currentScreen === 'dashboard' && (
           <Dashboard
             onEnterFocus={() => setCurrentScreen('simplify')}
@@ -122,7 +118,6 @@ export default function App() {
           />
         )}
 
-        {/* 4. DEEP FOCUS (The Plant Mode) */}
         {currentScreen === 'simplify' && (
           <Simplify onBack={() => setCurrentScreen('dashboard')} tasks={focusTasks} />
         )}

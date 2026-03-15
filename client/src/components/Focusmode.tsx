@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle2, ArrowLeft, Zap, User, Wind, Coffee } from 'lucide-react';
+import { CheckCircle2, ArrowLeft, Zap, Wind, Coffee } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 // --- Types ---
@@ -14,17 +14,9 @@ interface FocusmodeProps {
   onBack: () => void;
   tasks: FocusTask[];
 }
-/**
- * @component FocusMode (Simplify.tsx)
- * @description Active deep-work session interface for Zeynep's Workspace Hub.
- * * @backend_integration_tasks
- * 1. SESSION START: Trigger POST /api/sessions/start on component mount to log start time.
- * 2. SLACK API: Backend should set user status to 🧘 (Focusing) upon session start.
- * 4. TASK SYNC: Replace `smartTasks` placeholder with GET /api/tasks/active.
- * 5. PERSISTENCE: Replace localStorage logic with a DB check to prevent timer reset on refresh.
-*/
+
 export default function Simplify({ onBack, tasks }: FocusmodeProps) {
-  const FOCUS_TIME: number = 40 * 60; // 40 minutes in seconds
+  const FOCUS_TIME: number = 40 * 60;
   const focusSplash: string = "https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?auto=format&fit=crop&q=80&w=1600";
 
   // --- TIMER STATE ---
@@ -40,6 +32,7 @@ export default function Simplify({ onBack, tasks }: FocusmodeProps) {
   });
   
   const [isActive] = useState<boolean>(true);
+  const [isExitModalOpen, setIsExitModalOpen] = useState<boolean>(false);
 
   // --- GROWTH STATE ---
   const [growth, setGrowth] = useState<number>(() => {
@@ -90,7 +83,23 @@ export default function Simplify({ onBack, tasks }: FocusmodeProps) {
   return (
     <div className="min-h-screen bg-[#f1f5f0] flex font-sans overflow-hidden relative">
       
-      {/* --- REFRESHING SPLASH BACKGROUND --- */}
+      <AnimatePresence>
+        {isExitModalOpen && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsExitModalOpen(false)} className="absolute inset-0 bg-emerald-950/40 backdrop-blur-md" />
+            <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="relative bg-white p-12 rounded-[4rem] shadow-2xl border border-white max-w-sm w-full text-center" >
+              <div className="text-7xl mb-6">🐨💧</div>
+              <h2 className="text-3xl font-black text-emerald-950 tracking-tighter mb-2">Stop Synthesis?</h2>
+              <p className="text-emerald-800/60 font-medium text-sm mb-10">Koda's garden needs your focus to produce O₂. If you leave now, the plant's growth will pause.</p>
+              <div className="flex flex-col gap-3">
+                <button onClick={onBack} className="w-full py-5 bg-red-50 text-red-600 rounded-3xl font-black text-sm uppercase tracking-widest hover:bg-red-100 transition-colors">Yes, Exit Focus</button>
+                <button onClick={() => setIsExitModalOpen(false)} className="w-full py-5 bg-emerald-950 text-white rounded-3xl font-black text-sm uppercase tracking-widest hover:bg-black transition-colors">Continue Focusing</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       <div className="absolute inset-0 z-0">
         <img 
           src={focusSplash} 
@@ -100,11 +109,10 @@ export default function Simplify({ onBack, tasks }: FocusmodeProps) {
         <div className="absolute inset-0 bg-gradient-to-br from-[#f1f5f0]/90 via-transparent to-[#f1f5f0]/80 backdrop-blur-[2px]" />
       </div>
 
-      {/* --- LEFT SIDEBAR: PLANT & FUNCTIONAL TIMER --- */}
       <div className="w-1/3 h-screen relative z-10 flex flex-col items-center justify-between p-12 border-r border-emerald-900/5 bg-white/70 backdrop-blur-xl">
         <div className="w-full">
           <button 
-            onClick={onBack} 
+            onClick={() => setIsExitModalOpen(true)} 
             className="group flex items-center gap-2 text-emerald-800/40 hover:text-emerald-900 transition-all font-black text-[10px] uppercase tracking-widest"
           >
             <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" /> Exit Focus
@@ -167,7 +175,6 @@ export default function Simplify({ onBack, tasks }: FocusmodeProps) {
         </div>
       </div>
 
-      {/* --- RIGHT SIDE: FOCUS STATION --- */}
       <div className="flex-1 h-screen relative z-10 flex flex-col p-12 overflow-y-auto">
         <header className="flex justify-between items-center mb-16">
           <div className="flex items-center gap-3 bg-white/40 backdrop-blur-md px-4 py-2 rounded-full border border-white/50 shadow-sm">

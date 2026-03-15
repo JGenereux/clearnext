@@ -32,6 +32,7 @@ export default function Dashboard({ onEnterFocus, onLogout, onTasksLoaded }: Das
 
   // --- State ---
   const [isMoodModalOpen, setIsMoodModalOpen] = useState<boolean>(false);
+  const [isLogoutModalOpen, setIsLogoutModalOpen] = useState<boolean>(false);
   const [selectedMood, setSelectedMood] = useState<string | null>(null);
   const [moodHistory, setMoodHistory] = useState<{ label: string; emoji: string; level: number; timestamp: string }[]>([]);
   const [oxygen, setOxygen] = useState<number>(1.20);
@@ -172,7 +173,7 @@ export default function Dashboard({ onEnterFocus, onLogout, onTasksLoaded }: Das
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsMoodModalOpen(false)} className="absolute inset-0 bg-emerald-950/20 backdrop-blur-sm" />
             <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="relative bg-white/90 backdrop-blur-2xl p-10 rounded-[4rem] shadow-2xl border border-white max-w-lg w-full text-center" >
               <button onClick={() => setIsMoodModalOpen(false)} className="absolute top-8 right-8 text-emerald-900/20 hover:text-emerald-900"><X size={24} /></button>
-              <h2 className="text-3xl font-black text-emerald-950 tracking-tighter mb-2">How’s your garden?</h2>
+              <h2 className="text-3xl font-black text-emerald-950 tracking-tighter mb-2">How's your garden?</h2>
               <div className="grid grid-cols-2 gap-4 mb-10 mt-8">
                 {moodOptions.map((mood) => (
                   <motion.button key={mood.label} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setSelectedMood(mood.label)} className={`p-6 rounded-[2.5rem] border-2 transition-all flex flex-col items-center gap-2 ${selectedMood === mood.label ? 'border-emerald-500 bg-emerald-50' : 'border-transparent bg-white/50 hover:bg-white'}`} >
@@ -182,6 +183,24 @@ export default function Dashboard({ onEnterFocus, onLogout, onTasksLoaded }: Das
                 ))}
               </div>
               <button onClick={saveMood} className="w-full py-5 bg-emerald-950 text-white rounded-4xl font-black text-lg">Save Today's Vibe</button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- LOGOUT CONFIRMATION MODAL --- */}
+      <AnimatePresence>
+        {isLogoutModalOpen && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsLogoutModalOpen(false)} className="absolute inset-0 bg-emerald-950/40 backdrop-blur-md" />
+            <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="relative bg-white p-12 rounded-[4rem] shadow-2xl border border-white max-w-sm w-full text-center" >
+              <div className="text-7xl mb-6">🐨💧</div>
+              <h2 className="text-3xl font-black text-emerald-950 tracking-tighter mb-2">Leaving so soon?</h2>
+              <p className="text-emerald-800/60 font-medium text-sm mb-10">Koda will miss you! Your garden will keep growing while you're away.</p>
+              <div className="flex flex-col gap-3">
+                <button onClick={onLogout} className="w-full py-5 bg-red-50 text-red-600 rounded-3xl font-black text-sm uppercase tracking-widest hover:bg-red-100 transition-colors">Yes, Logout</button>
+                <button onClick={() => setIsLogoutModalOpen(false)} className="w-full py-5 bg-emerald-950 text-white rounded-3xl font-black text-sm uppercase tracking-widest hover:bg-black transition-colors">Wait, Stay!</button>
+              </div>
             </motion.div>
           </div>
         )}
@@ -198,14 +217,13 @@ export default function Dashboard({ onEnterFocus, onLogout, onTasksLoaded }: Das
 
           <div className="flex gap-4">
             <button onClick={onEnterFocus} className="flex items-center gap-2 bg-emerald-700 text-white px-5 py-3 rounded-3xl font-black text-sm hover:bg-emerald-800 transition-all shadow-lg"><Play size={16} /> Focus Mode</button>
-            <button onClick={onLogout} className="flex items-center gap-2 bg-white/60 hover:bg-white rounded-3xl text-[10px] font-black text-emerald-800 uppercase tracking-[0.2em] transition-all border border-emerald-50 px-4 py-3"><LogOut size={14} /> Logout</button>
+            <button onClick={() => setIsLogoutModalOpen(true)} className="flex items-center gap-2 bg-white/60 hover:bg-white rounded-3xl text-[10px] font-black text-emerald-800 uppercase tracking-[0.2em] transition-all border border-emerald-50 px-4 py-3"><LogOut size={14} /> Logout</button>
           </div>
         </header>
 
         <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-12">
           <section className="lg:col-span-2 space-y-8">
             
-            {/* --- SPLASH IMAGE SECTION --- */}
             <motion.div 
               initial={{ opacity: 0, y: 20 }} 
               animate={{ opacity: 1, y: 0 }}
@@ -226,7 +244,6 @@ export default function Dashboard({ onEnterFocus, onLogout, onTasksLoaded }: Das
               </div>
             </motion.div>
 
-            {/* --- QUEUE SECTION --- */}
             <div className="space-y-6">
               <h2 className="text-xs font-black text-emerald-900/40 uppercase tracking-[0.3em] px-2">Queue</h2>
               <div className="grid gap-4">
@@ -249,7 +266,6 @@ export default function Dashboard({ onEnterFocus, onLogout, onTasksLoaded }: Das
               </div>
             </div>
 
-            {/* --- KOALA PET --- */}
             <motion.section initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="bg-white/40 backdrop-blur-xl p-8 rounded-[4rem] border border-white/50 flex flex-col md:flex-row items-center gap-8 relative overflow-hidden" >
               <div className="relative group w-full md:w-64 h-48 flex items-center justify-center bg-emerald-50/50 rounded-[3rem] border-4 border-white shadow-inner overflow-hidden">
                 <AnimatePresence mode="wait">

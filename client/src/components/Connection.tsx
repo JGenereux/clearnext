@@ -15,7 +15,6 @@ export default function Connections({ onBack }: ConnectionsProps) {
   return (
     <div className="min-h-screen p-8 font-sans relative flex items-center justify-center overflow-hidden">
 
-      {/* --- FULL SCREEN BACKGROUND --- */}
       <div
         className="absolute inset-0 z-0 bg-cover bg-center transition-transform duration-[10s] scale-110"
         style={{
@@ -23,7 +22,6 @@ export default function Connections({ onBack }: ConnectionsProps) {
         }}
       />
 
-      {/* --- FLOATING O2 BLUR ELEMENTS --- */}
       <div className="absolute inset-0 pointer-events-none z-0">
         <motion.div
           animate={{ x: [0, 40, 0], opacity: [0.4, 0.7, 0.4] }}
@@ -72,7 +70,6 @@ export default function Connections({ onBack }: ConnectionsProps) {
         </motion.div>
       </div>
 
-      {/* FOOTER */}
       <div className="absolute bottom-10 left-0 right-0 flex justify-center items-center gap-3 text-emerald-900/40">
         <ShieldCheck size={18} />
         <span className="text-[11px] font-black uppercase tracking-[0.3em]">Secure Authentication</span>
