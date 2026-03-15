@@ -9,11 +9,23 @@ export default function Connections({ onBack }) {
   const [step, setStep] = useState('select'); 
 
   const handleAuth = () => {
+    // Save state so App.jsx useEffect triggers the Dashboard view
     localStorage.setItem('isLoggedIn', 'true');
     localStorage.setItem('userEmail', email);
     localStorage.setItem('userName', username || email.split('@')[0]);
-    window.open(window.location.origin, '_blank');
-    onBack();
+    /*
+    Connections / Auth Page
+    authentication flow for Slack/gmail/google This is the "Gateway" where you establish the user's identity.
+This is the "Gateway" where you establish the user's identity.
+
+Token Storage: After a successful Google/Slack login, the backend will send a JWT (JSON Web Token). Store this in localStorage or a secure cookie. Every subsequent request to the backend must include this token in the header.
+
+Integration Checks: The "Connect" buttons should check the backend for existing tokens. If a token exists, show "Connected" (Emerald style); if not, show the "Connect" action.
+
+Loading States: Since connecting to Slack involves a redirect, ensure you have a "Callback" route on your frontend to handle the code Slack sends back, which you then pass to your backend to exchange for a real access token.*/
+    
+    // This now sends the user to the 'dashboard' screen in App.jsx
+    onBack(); 
   };
 
   // REFRESHING GREEN API IMAGE
@@ -35,7 +47,7 @@ export default function Connections({ onBack }) {
         <motion.div 
           animate={{ x: [0, 40, 0], opacity: [0.4, 0.7, 0.4] }}
           transition={{ duration: 12, repeat: Infinity }}
-          className="absolute top-[-10%] left-[-10%] w-[400px] h-[400px] bg-emerald-300/20 blur-[100px] rounded-full"
+          className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-emerald-300/20 blur-[100px] rounded-full"
         />
       </div>
 
@@ -51,7 +63,7 @@ export default function Connections({ onBack }) {
               exit={{ opacity: 0, scale: 1.1 }}
             >
               <button onClick={onBack} className="flex items-center gap-2 text-emerald-900/60 hover:text-emerald-900 mb-8 font-black uppercase text-[10px] tracking-widest transition-all">
-                <ArrowLeft size={14} /> Back to calm
+                <ArrowLeft size={14} /> Return to Home 
               </button>
 
               <h1 className="text-5xl font-black text-emerald-950 mb-3 tracking-tighter leading-none">
@@ -60,13 +72,7 @@ export default function Connections({ onBack }) {
               <p className="text-emerald-800/60 mb-10 text-sm font-medium">Step into your refreshed workspace.</p>
               
               <div className="flex flex-col gap-4">
-                <button 
-                  onClick={() => { setLoginMethod('google'); setStep('credentials'); }}
-                  className="group flex items-center justify-center gap-4 bg-white/90 backdrop-blur-md border border-white p-6 rounded-[2.5rem] hover:bg-white transition-all font-bold text-emerald-900 shadow-xl shadow-emerald-900/10 active:scale-95"
-                >
-                  <img src="https://www.google.com/favicon.ico" className="w-5 h-5" alt="Google" />
-                  Continue with Google
-                </button>
+               
                 <button 
                   onClick={() => { setLoginMethod('slack'); setStep('credentials'); }}
                   className="flex items-center justify-center gap-4 bg-[#4A154B] text-white p-6 rounded-[2.5rem] hover:opacity-95 transition-all font-bold shadow-xl shadow-purple-900/20 active:scale-95"
@@ -87,11 +93,11 @@ export default function Connections({ onBack }) {
               className="bg-white/80 backdrop-blur-2xl p-10 rounded-[48px] shadow-2xl border border-white/50"
             >
               <div className="flex justify-center mb-8">
-                <div className="p-4 bg-emerald-50 rounded-3xl">
-                  {loginMethod === 'google' ? <img src="https://www.google.com/favicon.ico" className="w-10 h-10" /> : <Slack size={40} className="text-[#4A154B]" />}
+                <div className="p-4 bg-emerald-50 rounded-3xl text-[#4A154B]">
+                  {loginMethod === 'google' ? <img src="https://www.google.com/favicon.ico" className="w-10 h-10" /> : <Slack size={40} />}
                 </div>
               </div>
-              <h2 className="text-2xl font-black text-emerald-950 text-center mb-10">Sign in to {loginMethod}</h2>
+              <h2 className="text-2xl font-black text-emerald-950 text-center mb-10 capitalize">Sign in to {loginMethod}</h2>
               
               <div className="space-y-4">
                 <div className="relative">
@@ -139,7 +145,7 @@ export default function Connections({ onBack }) {
               <button 
                 onClick={() => setStep('loading')} 
                 disabled={!username}
-                className="bg-emerald-950 text-white px-16 py-6 rounded-[2rem] font-black text-2xl hover:bg-black transition-all shadow-2xl disabled:opacity-20"
+                className="bg-emerald-950 text-white px-16 py-6 rounded-4xl font-black text-2xl hover:bg-black transition-all shadow-2xl disabled:opacity-20"
               >
                 Let's Start
               </button>
@@ -156,7 +162,7 @@ export default function Connections({ onBack }) {
               >
                 <Loader2 size={80} className="text-emerald-600" />
               </motion.div>
-              <h2 className="text-4xl font-black text-emerald-950 mb-4 tracking-tighter">Creating Oxygen...</h2>
+              <h2 className="text-4xl font-black text-emerald-950 mb-4 tracking-tighter">Launching</h2>
               <button 
                 onClick={handleAuth} 
                 className="bg-emerald-700 text-white px-12 py-5 rounded-2xl font-black text-lg hover:bg-emerald-800 shadow-2xl mt-10 transition-all active:scale-95"
