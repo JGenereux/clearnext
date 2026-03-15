@@ -6,7 +6,16 @@ import Connections from './components/Connection';
 import Dashboard from './components/Dashboard'; 
 
 type Screen = 'landing' | 'connections' | 'dashboard' | 'simplify';
-
+/**
+ * /**
+ * @file App.tsx
+ * @description Root Controller & Navigation Hub for Clearnext.
+ * Manages the global state machine (Landing -> Connections -> Dashboard -> Focus).
+ * * @hackathon_backend_notes:
+ * 1. PERSISTENT AUTH: Currently uses localStorage for demo speed. 
+ * - Transition to checking a 'session' token via an API call on mount to verify user validity.
+ * 2. ROUTING: Navigation is handled via conditional rendering. 
+ * - Ensure backend redirect URIs (for Slack/Google) point back to the root domain.**/
 export default function App() {
   // 1. Initialize state based on storage IMMEDIATELY
   const [currentScreen, setCurrentScreen] = useState<Screen>(() => {

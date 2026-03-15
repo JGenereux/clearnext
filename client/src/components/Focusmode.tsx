@@ -12,7 +12,15 @@ interface SmartTask {
   source: string;
   text: string;
 }
-
+/**
+ * @component FocusMode (Simplify.tsx)
+ * @description Active deep-work session interface for Zeynep's Workspace Hub.
+ * * @backend_integration_tasks
+ * 1. SESSION START: Trigger POST /api/sessions/start on component mount to log start time.
+ * 2. SLACK API: Backend should set user status to 🧘 (Focusing) upon session start.
+ * 4. TASK SYNC: Replace `smartTasks` placeholder with GET /api/tasks/active.
+ * 5. PERSISTENCE: Replace localStorage logic with a DB check to prevent timer reset on refresh.
+*/
 export default function Simplify({ onBack }: FocusmodeProps) {
   const FOCUS_TIME: number = 40 * 60; // 40 minutes in seconds
   const focusSplash: string = "https://images.unsplash.com/photo-1542273917363-3b1817f69a2d?auto=format&fit=crop&q=80&w=1600";
