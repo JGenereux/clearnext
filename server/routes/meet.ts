@@ -11,6 +11,7 @@ const oauth2Client = new google.auth.OAuth2(
 
 const SCOPES = [
   'https://www.googleapis.com/auth/meetings.space.readonly',
+  'https://www.googleapis.com/auth/calendar.readonly',
 ];
 
 /**
@@ -265,4 +266,39 @@ export async function getGoogleMeetContext(userName: string = "Jace", _userId: s
   return '';
 }
 
+export async function getGoogleCalendarContext(_userId: string): Promise<string> {
+  if (!oauth2Client.credentials?.access_token) return '';
+
+  try {
+    const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+
+    const now = new Date();
+    const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+
+    const eventsRes = await calendar.events.list({
+      calendarId: 'primary',
+      timeMin: now.toISOString(),
+      timeMax: endOfDay.toISOString(),
+      singleEvents: true,
+      orderBy: 'startTime',
+    });
+
+    const events = eventsRes.data.items || [];
+    if (events.length === 0) return '';
+
+    return events.map(event => {
+      const start = event.start?.dateTime || event.start?.date || '';
+      const end = event.end?.dateTime || event.end?.date || '';
+      const summary = event.summary || 'No title';
+      const attendees = (event.attendees || [])
+        .map(a => a.displayName || a.email)
+        .join(', ');
+      return `[${start} - ${end}] ${summary}${attendees ? ` (${attendees})` : ''}`;
+    }).join('\n');
+  } catch (err) {
+    console.error('Failed to fetch calendar events:', err);
+  }
+
+  return '';
+}
 export default router;

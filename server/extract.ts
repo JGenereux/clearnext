@@ -5,6 +5,7 @@ import { Task } from './types';
 export async function extractTasks(
   slackText: string,
   transcriptText: string,
+  calendarText: string,
   userName: string
 ): Promise<Task[]> {
   const sanitize = (s: string) => s.slice(0, 10_000).replace(/```/g, '');
@@ -17,6 +18,8 @@ ${sanitize(slackText) || '(none)'}
 === MEETING TRANSCRIPT ===
 ${sanitize(transcriptText) || '(none)'}
 
+=== CALENDAR TRANSCRIPT ===
+${sanitize(calendarText) || '(none)'}
 Return a JSON object with a "tasks" array.`;
 
   try {
@@ -36,7 +39,7 @@ Return a JSON object with a "tasks" array.`;
 
     const timestamp = Date.now();
     return tasks
-      .filter(t => t && t.title && t.source)
+      .filter(t => t && t.title && t.source && t.assigned_to_user !== false)
       .map((t, i) => ({
         ...t,
         id: t.id || `t_${timestamp}_${i}`,

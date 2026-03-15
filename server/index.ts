@@ -7,7 +7,7 @@ import { extractTasks } from './extract';
 import { makeDecision } from './decide';
 import { Task, Decision } from './types';
 import { getSlackContext } from './slack-reader';
-import meetRouter, { getGoogleMeetContext } from './routes/meet';
+import meetRouter, { getGoogleCalendarContext, getGoogleMeetContext } from './routes/meet';
 import { saveTasks, getTasks, markTaskDone, saveDecision, getLatestDecision } from './supabase';
 
 const PORT = process.env.PORT || 3000;
@@ -63,9 +63,9 @@ function validateUserId(id: unknown): string | null {
 
 async function gatherInputs(userId: string) {
   const slack = await getSlackContext(userId);
-  // TODO: Google Meet transcript + Calendar (Person C)
   const transcript = await getGoogleMeetContext('Jace', userId);
-  return { slack, transcript};
+  const calendar = await getGoogleCalendarContext(userId);
+  return { slack, transcript, calendar};
 }
 
 // --- Mock data fallbacks ---
@@ -74,11 +74,12 @@ const MOCK_DECISION: Decision = {
     task_id: 't1',
     title: 'Fix Shopify webhook',
     reason: 'Eric mentioned this 3x, blocking deploy',
-    estimated_minutes: 9
+    estimated_minutes: 9,
+    source: 'slack'
   },
   up_next: [
-    { task_id: 't2', title: 'Review PR #42', reason: 'Sarah requested review this morning', estimated_minutes: 15 },
-    { task_id: 't3', title: 'Update API docs', reason: 'Needed before client demo at 4pm', estimated_minutes: 20 }
+    { task_id: 't2', title: 'Review PR #42', reason: 'Sarah requested review this morning', estimated_minutes: 15, source: 'slack' },
+    { task_id: 't3', title: 'Update API docs', reason: 'Needed before client demo at 4pm', estimated_minutes: 20, source: 'meet' }
   ],
   context_blocks: [
     { name: 'Shopify Integration', task_ids: ['t1', 't3'], do_first: true },
@@ -189,7 +190,7 @@ api.post('/api/now', async (req: Request, res: Response) => {
 
   try {
     const inputs = await gatherInputs(userId);
-    const tasks = await extractTasks(inputs.slack, inputs.transcript, userName);
+    const tasks = await extractTasks(inputs.slack, inputs.transcript, inputs.calendar, userName);
 
     if (tasks.length === 0) {
       res.json({ ...MOCK_DECISION, is_mock: true });

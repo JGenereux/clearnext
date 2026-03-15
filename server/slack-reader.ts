@@ -148,5 +148,6 @@ export async function getSlackContext(userId: string): Promise<string> {
 
   const text = lines.join('\n') || '';
   contextCache.set(userId, { text, timestamp: Date.now() });
+  console.log('Slack texts: ', text)
   return text;
 }
