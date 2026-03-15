@@ -2,7 +2,7 @@ import React, { useState , useEffect} from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Slack, ShieldCheck, Loader2, Lock, Mail, Wind } from 'lucide-react';
 
-// 1. Define Props Interface
+// 1. Define Props Interface this is the page where user enters their credentials to connect their workspace, we will lift the state up to App.tsx to trigger the Dashboard view on successful login
 interface ConnectionsProps {
   onBack: () => void;
 }
@@ -53,7 +53,7 @@ useEffect(() => {
         <motion.div 
           animate={{ x: [0, 40, 0], opacity: [0.4, 0.7, 0.4] }}
           transition={{ duration: 12, repeat: Infinity }}
-          className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-emerald-300/20 blur-[100px] rounded-full"
+          className="absolute top-[-10%] left-[-10%] w-125 h-125 bg-emerald-300/20 blur-[100px] rounded-full"
         />
       </div>
 
@@ -69,7 +69,7 @@ useEffect(() => {
               exit={{ opacity: 0, scale: 1.1 }}
             >
               <button onClick={onBack} className="flex items-center gap-2 text-emerald-900/60 hover:text-emerald-900 mb-8 font-black uppercase text-[10px] tracking-widest transition-all">
-                <ArrowLeft size={14} /> Return to Home 
+                <ArrowLeft size={14} /> Return to Login 
               </button>
 
               <h1 className="text-5xl font-black text-emerald-950 mb-3 tracking-tighter leading-none">
